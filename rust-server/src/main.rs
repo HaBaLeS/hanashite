@@ -15,7 +15,6 @@ async fn main() {
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     extern crate hound;
-    use super::*;
     use std::fs::File;
     use std::cmp;
     use std::fs;

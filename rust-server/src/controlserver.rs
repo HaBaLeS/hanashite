@@ -9,6 +9,8 @@ use std::boxed::Box;
 use std::net::SocketAddr;
 use tokio::sync::{Mutex};
 use tokio_util::codec::{Framed, LinesCodec};
+use crate::clienthandler::ClientHandler;
+
 struct ServerState {
 
 }
@@ -42,8 +44,8 @@ impl ControlServer {
         stream: TcpStream,
         addr: SocketAddr,
     ) -> Result<(), Box<dyn Error>> {
-        let mut clientHandler = Framed::new(stream, LinesCodec::new());
-
+        let mut clientHandler = Framed::new(stream, ClientHandler::new());
+        Ok(())
      }
 }
 

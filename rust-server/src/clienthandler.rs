@@ -1,11 +1,26 @@
 use tokio_util::codec::{Encoder,Decoder};
 use bytes::{Bytes, BytesMut};
 use std::io;
+
+
 pub struct ClientHandler {
 
 }
 
-impl Decoder for ClientHandler {
+
+struct MessageParser {
+
+}
+
+impl ClientHandler {
+    pub fn new() -> ClientHandler {
+        ClientHandler  {
+
+        }
+    }
+}
+
+impl Decoder for MessageParser {
     type Item = Bytes;
     type Error = io::Error;
     
@@ -13,14 +28,14 @@ impl Decoder for ClientHandler {
         &mut self,
         src: &mut BytesMut
     ) -> Result<Option<Bytes>, Self::Error> {
-
+        Ok(None)
     }
 }
 
-impl Encoder<Bytes> for ClientHandler {
+impl Encoder<Bytes> for MessageParser {
     type Error = io::Error;
 
     fn encode(&mut self, bytes: Bytes, dst: &mut BytesMut) -> Result<(), Self::Error> {
-
+        Ok(())
     }
 }
