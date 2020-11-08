@@ -2,11 +2,9 @@ extern crate tokio;
 extern crate bytes;
 mod controlserver;
 mod clienthandler;
-
-
 #[tokio::main]
 async fn main() {
-    let mut server = controlserver::ControlServer::new();
+    let server = controlserver::ControlServer::new();
     server.run().await.unwrap();
 }
 
@@ -26,7 +24,7 @@ mod tests {
     #[test]
     fn testrecode() {
         const SAMPLE_SIZE: usize=120;
-        fs::remove_file("target/recoded.wav");
+        let _ = fs::remove_file("target/recoded.wav");
         let mut reader = WavReader::open("resources/original.wav").unwrap();
         let mut writer = WavWriter::new(File::create("target/recoded.wav").expect("OK"), reader.spec().clone()).unwrap();
         println!("{:?}", reader.spec());

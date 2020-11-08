@@ -1,18 +1,33 @@
+use crate::clienthandler::ClientHandler;
+
+use std::boxed::Box;
+use std::collections::{HashMap,HashSet};
+use std::error::Error;
+use std::result::Result;
+use std::sync::Arc;
+
+use tokio::net::{TcpListener};
+use tokio::sync::{Mutex};
+
+use uuid::Uuid;
+
 pub struct ControlServer {
 
 }
-use std::result::Result;
-use std::error::Error;
-use tokio::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::boxed::Box;
-use std::net::SocketAddr;
-use tokio::sync::{Mutex};
-use tokio_util::codec::{Framed, LinesCodec};
-use crate::clienthandler::ClientHandler;
 
-struct ServerState {
+#[allow(dead_code)]
+pub struct ServerState {
+    channels: HashMap<String, HashSet<Uuid>>,
+    clients: HashMap<Uuid, String>
+}
 
+impl ServerState {
+    fn new() -> ServerState {
+        ServerState {
+            channels: HashMap::new(),
+            clients: HashMap::new()
+        }
+    }
 }
 
 impl ControlServer {
@@ -23,29 +38,22 @@ impl ControlServer {
 
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         let addr = "0.0.0.0:9876".to_string();
-        let state = Arc::new(Mutex::new(ServerState {}));
+        let listener = TcpListener::bind(&addr).await?;
+
+        let state = Arc::new(Mutex::new(ServerState::new()));
         // Bind a TCP listener to the socket address.
         //
         // Note that this is the Tokio TcpListener, which is fully async.
-        let listener = TcpListener::bind(&addr).await?;
 
         loop {
             let (stream, addr) = listener.accept().await?;
             let state = Arc::clone(&state);
             // Spawn our handler to be run asynchronously.
             tokio::spawn(async move {
-                
+                let client_handler =  ClientHandler::new(state , addr);
+                client_handler.run(stream).await;
             });
         }
-     }
-
-     async fn run_client(
-        state: Arc<Mutex<ServerState>>,
-        stream: TcpStream,
-        addr: SocketAddr,
-    ) -> Result<(), Box<dyn Error>> {
-        let mut clientHandler = Framed::new(stream, ClientHandler::new());
-        Ok(())
      }
 }
 
