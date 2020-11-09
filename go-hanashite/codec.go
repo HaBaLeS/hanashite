@@ -18,19 +18,19 @@ func NewOpusEncoder() *AudioEncoder {
 	return &AudioEncoder{}
 }
 
-func (aec *AudioEncoder) Test() {
+func (aec *AudioEncoder) Encode(in, out string) {
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
 	if err != nil {
 		panic(err)
 	}
 
-	f, err := os.Open("test.wav")
-	of, _ := os.Create("out.opus")
+	f, err := os.Open(in)
+	of, _ := os.Create(out)
 	defer of.Close()
 	defer f.Close()
 	pcm := make([]int16, 960)
 	for true {
-		if err := binary.Read(f, binary.LittleEndian, &pcm); err != nil {
+		if err := binary.Read(f, binary.BigEndian, &pcm); err != nil {
 			fmt.Println("binary.Read failed:", err)
 			break
 		}
@@ -55,6 +55,54 @@ func (aec *AudioEncoder) Test() {
 			panic(err)
 		}
 		data = data[:n] // only the first N bytes are opus data. Just like io.Reader.
-		of.Write(data)
+		fmt.Printf("Packet: %d bytes\n", n)
+		err = binary.Write(of, binary.BigEndian, int32(n))
+		if err != nil {
+			panic(err)
+		}
+		err = binary.Write(of, binary.BigEndian, data)
+		if err != nil {
+			panic(err)
+		}
+
+	}
+
+}
+
+func (aec *AudioEncoder) Decode(in, out string) {
+	is, err := os.Open(in)
+	defer is.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	os, err := os.Create(out)
+	defer os.Close()
+
+	dec, err := opus.NewDecoder(sampleRate, channels)
+	if err != nil {
+		panic(err)
+	}
+
+	data := make([]int16, 4096)
+	var n int32
+	for true {
+		if err := binary.Read(is, binary.BigEndian, &n); err != nil {
+			fmt.Println("binary.Read failed:", err)
+			break
+		}
+		buf := make([]byte, n)
+		rn, err := is.Read(buf)
+		if err != nil {
+			panic(err)
+		}
+		if int32(rn) != n {
+			panic("Out of sync!")
+		}
+		p, dee := dec.Decode(buf, data)
+		if dee != nil {
+			panic(dee)
+		}
+		binary.Write(os, binary.BigEndian, data[:p])
 	}
 }

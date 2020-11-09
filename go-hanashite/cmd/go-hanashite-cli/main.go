@@ -37,8 +37,7 @@ var tmpl = template.Must(template.New("").Parse(
 
 func main() {
 
-	dlist := cli.NewCommand("devicelist", "Enumerate Devices").
-		WithShortcut("l").
+	dlist := cli.NewCommand("list", "Enumerate Devices").
 		WithAction(listDevicesAction)
 
 	version := cli.NewCommand("version", "Show Version information").WithAction(func(args []string, options map[string]string) int {
@@ -49,13 +48,22 @@ func main() {
 
 	recorder := cli.NewCommand("record", "Record raw pcm file").WithAction(recordAction).WithArg(cli.NewArg("file", "filename to save into"))
 	player := cli.NewCommand("play", "Play raw pcm file").WithAction(playerAction).WithArg(cli.NewArg("file", "filename play from"))
-	encode := cli.NewCommand("encode", "Encode raw file to opus").WithAction(encodeAction).WithArg(cli.NewArg("file", "file to encode"))
+	encode := cli.NewCommand("encode", "Encode raw file to opus").
+		WithAction(encodeAction).
+		WithArg(cli.NewArg("in", "rawpcm to encode")).
+		WithArg(cli.NewArg("out", "file to write opus frames to"))
+
+	decode := cli.NewCommand("decode", "Decode opus frames to raw pcm").
+		WithAction(decodeAction).
+		WithArg(cli.NewArg("in", "opus to decode")).
+		WithArg(cli.NewArg("out", "file to write pcm to"))
 
 	app := cli.New("Commandline Version of go-hanashite").
 		WithCommand(dlist).
 		WithCommand(version).
 		WithCommand(recorder).
 		WithCommand(encode).
+		WithCommand(decode).
 		WithCommand(player)
 
 	os.Exit(app.Run(os.Args, os.Stdout))
@@ -127,10 +135,21 @@ func playerAction(args []string, options map[string]string) int {
 }
 
 func encodeAction(args []string, options map[string]string) int {
-	//infile := args[0]
+	infile := args[0]
+	outfile := args[1]
 
 	enc := hanashite.NewOpusEncoder()
-	enc.Test()
+	enc.Encode(infile, outfile)
+
+	return 0
+}
+
+func decodeAction(args []string, options map[string]string) int {
+	infile := args[0]
+	outfile := args[1]
+
+	enc := hanashite.NewOpusEncoder()
+	enc.Decode(infile, outfile)
 
 	return 0
 }
