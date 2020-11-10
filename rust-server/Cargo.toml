@@ -12,6 +12,8 @@ uuid = { version = "0.8.1", features = [ "v4" ] }
 tokio-util = { version = "0.5.0", features = [ "codec" ] }
 log = "0.4.11"
 quick-protobuf = "0.8.0"
+tracing = "0.1"
+tracing-subscriber = "0.2"
 
 [dev-dependencies]
 hound = "3.4.0"

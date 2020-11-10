@@ -1,10 +1,10 @@
 use crate::controlserver::ServerState;
 use bytes::{BytesMut, Buf};
 
-use crate::protos::hanmessage::{HanMessage};
-
+use crate::protos::hanmessage::{HanMessage,Auth};
+use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use std::sync::Arc;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Shutdown};
 
 use tokio::net::{TcpStream};
 use tokio::stream::StreamExt;
@@ -13,6 +13,7 @@ use tokio_util::codec::Framed;
 use tokio_util::codec::{Encoder, Decoder};
 use quick_protobuf::{BytesReader, MessageRead, Error, MessageWrite, BytesWriter,Writer};
 use quick_protobuf::errors::Error::Message;
+use uuid::Uuid;
 
 
 #[allow(dead_code)]
@@ -34,20 +35,55 @@ impl ClientHandler {
 }
 
 
+
 impl ClientHandler {
     pub async fn run(&self,
                      stream: TcpStream) {
         let mut messages = Framed::new(stream, MessageParser {});
         while let Some(result) = messages.next().await {
             match result {
-                Ok(msg) => self.process_message(msg, &messages),
+                Ok(msg) => self.process_message(msg, &mut messages),
                 Err(_) => return
             }
         }
     }
 
-    fn process_message(&self, _data: HanMessage, _control: &Framed<TcpStream, MessageParser>) {}
+    fn disconnect(&self, control: &mut Framed<TcpStream, MessageParser>) {
+        match control.get_mut().shutdown(Shutdown::Both) {
+            _ => ()
+        }
+    }
+
+    fn process_message(&self, data: HanMessage, control: &mut Framed<TcpStream, MessageParser>) {
+        match self.multiplex(&data) {
+            Err(_) => self.disconnect(control),
+            _ => ()
+        }
+    }
+
+    fn multiplex(&self, data: &HanMessage) -> Result<(), Error> {
+        let uuid = match Uuid::from_slice(&data.uuid[..]) {
+            Err(_) => return Err(Error::Message("Illegal UUID".to_string())),
+            Ok(id) => id
+        };
+        match &data.msg {
+            OneOfmsg::auth(msg) => self.handle_auth(&uuid, &msg),
+            OneOfmsg::auth_result(_) => self.handle_illegal_msg(&uuid, "auth_result"),
+            _ => self.handle_illegal_msg(&uuid, "unknown_message")
+        }
+    }
+
+    fn handle_auth(&self, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
+        println!("Received Auth UUID: {}, user: {}", &uuid, &msg.username);
+        Ok(())
+    }
+
+    fn handle_illegal_msg(&self, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
+        unimplemented!()
+    }
+
 }
+
 
 const HEADER_LENGTH : usize = 8;
 

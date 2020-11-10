@@ -15,7 +15,7 @@ use super::*;
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct HanMessage {
-    pub uuid: String,
+    pub uuid: Vec<u8>,
     pub msg: mod_HanMessage::OneOfmsg,
 }
 
@@ -24,7 +24,7 @@ impl<'a> MessageRead<'a> for HanMessage {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(10) => msg.uuid = r.read_string(bytes)?.to_owned(),
+                Ok(10) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
                 Ok(18) => msg.msg = mod_HanMessage::OneOfmsg::auth(r.read_message::<Auth>(bytes)?),
                 Ok(26) => msg.msg = mod_HanMessage::OneOfmsg::auth_result(r.read_message::<AuthResult>(bytes)?),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
@@ -38,7 +38,7 @@ impl<'a> MessageRead<'a> for HanMessage {
 impl MessageWrite for HanMessage {
     fn get_size(&self) -> usize {
         0
-        + if self.uuid == String::default() { 0 } else { 1 + sizeof_len((&self.uuid).len()) }
+        + if self.uuid.is_empty() { 0 } else { 1 + sizeof_len((&self.uuid).len()) }
         + match self.msg {
             mod_HanMessage::OneOfmsg::auth(ref m) => 1 + sizeof_len((m).get_size()),
             mod_HanMessage::OneOfmsg::auth_result(ref m) => 1 + sizeof_len((m).get_size()),
@@ -46,7 +46,7 @@ impl MessageWrite for HanMessage {
     }    }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.uuid != String::default() { w.write_with_tag(10, |w| w.write_string(&**&self.uuid))?; }
+        if !self.uuid.is_empty() { w.write_with_tag(10, |w| w.write_bytes(&**&self.uuid))?; }
         match self.msg {            mod_HanMessage::OneOfmsg::auth(ref m) => { w.write_with_tag(18, |w| w.write_message(m))? },
             mod_HanMessage::OneOfmsg::auth_result(ref m) => { w.write_with_tag(26, |w| w.write_message(m))? },
             mod_HanMessage::OneOfmsg::None => {},
