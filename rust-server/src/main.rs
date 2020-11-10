@@ -2,6 +2,7 @@ extern crate tokio;
 extern crate bytes;
 mod controlserver;
 mod clienthandler;
+mod protos;
 #[tokio::main]
 async fn main() {
     let server = controlserver::ControlServer::new();
@@ -71,3 +72,4 @@ mod tests {
     }
 
 }
+

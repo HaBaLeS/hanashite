@@ -1,0 +1,21 @@
+
+syntax="proto3";
+/**
+ * Envelope to enable easy parsing of multiple types of messages
+ */
+message HanMessage {
+  string uuid = 1;
+  oneof msg {
+    Auth auth = 2;
+    AuthResult auth_result = 3;
+  }
+}
+
+
+message Auth {
+  string username = 1;
+}
+
+message AuthResult {
+  bool success = 1;
+}
