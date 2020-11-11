@@ -5,12 +5,11 @@ use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use std::sync::{Arc,Mutex};
 use std::net::{SocketAddr, Shutdown};
-
 use tokio::net::{TcpStream};
 use tokio::stream::StreamExt;
 use tokio_util::codec::Framed;
 use tokio_util::codec::{Encoder, Decoder};
-use quick_protobuf::{BytesReader, MessageRead, Error, MessageWrite, BytesWriter,Writer};
+use quick_protobuf::{BytesReader, MessageRead, Error, Writer, MessageWrite};
 use quick_protobuf::errors::Error::Message;
 use uuid::Uuid;
 
@@ -21,7 +20,7 @@ pub struct ClientHandler {
     addr: SocketAddr,
 }
 
-struct MessageParser {}
+pub struct MessageParser {}
 
 impl ClientHandler {
     pub fn new(state: Arc<Mutex<ServerState>>,
@@ -88,10 +87,9 @@ const HEADER_LENGTH : usize = 10;
 
 impl MessageParser {
 
-    fn read_header(src: &&mut BytesMut) -> Result<usize, Error> {
-        let data = &src[..10];
-        let mut reader = BytesReader::from_bytes(data);
-        let header = match StreamHeader::from_reader(&mut reader, data) {
+    fn read_header(src: &mut BytesMut) -> Result<usize, Error> {
+        let mut reader = BytesReader::from_bytes(src.bytes());
+        let header: StreamHeader = match reader.read_message_by_len(src.bytes(), HEADER_LENGTH) {
             Err(e) => return Err(e),
             Ok(val) => val
         };
@@ -115,7 +113,7 @@ impl Decoder for MessageParser {
         if src.len() < HEADER_LENGTH {
             return Ok(None);
         }
-        let size = match MessageParser::read_header(&src) {
+        let size = match MessageParser::read_header(src) {
             Ok(val) => val,
             Err(e) => return Err(e)
         };
@@ -123,9 +121,8 @@ impl Decoder for MessageParser {
             return Ok(None);
         }
         src.advance(HEADER_LENGTH);
-        let data = &src[0..size];
-        let mut reader = BytesReader::from_bytes(data);
-        let result = HanMessage::from_reader(&mut reader, data);
+        let mut reader = BytesReader::from_bytes(src.bytes());
+        let result = reader.read_message_by_len(src.bytes(), size);
         src.advance(size);
         match result {
             Ok(msg) => Ok(Some(msg)),
@@ -138,11 +135,31 @@ impl Encoder<HanMessage> for MessageParser {
     type Error = quick_protobuf::Error;
 
     fn encode(&mut self, message: HanMessage, dst: &mut BytesMut) -> Result<(), quick_protobuf::Error> {
-        let msg_size = message.get_size() + HEADER_LENGTH;
-        let offset = dst.len();
-        dst.resize(offset + msg_size, 0);
-        let mut writer = Writer::new(BytesWriter::new(&mut dst[offset..]));
+        let mut writer = Writer::new(ByteMutWrite { delegate: dst });
+        match (StreamHeader {
+            magic: 0x00008A71,
+            length: message.get_size() as u32
+        }).write_message(&mut writer) {
+            Err(e) => return Err(e),
+            _ => ()
+        }
         message.write_message(&mut writer)
+    }
+}
+
+pub struct ByteMutWrite<'a> {
+    delegate: &'a mut BytesMut
+}
+
+impl std::io::Write for ByteMutWrite<'_> {
+
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.delegate.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
