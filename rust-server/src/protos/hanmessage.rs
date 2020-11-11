@@ -14,6 +14,41 @@ use quick_protobuf::sizeofs::*;
 use super::*;
 
 #[derive(Debug, Default, PartialEq, Clone)]
+pub struct StreamHeader {
+    pub magic: u32,
+    pub length: u32,
+}
+
+impl<'a> MessageRead<'a> for StreamHeader {
+    fn from_reader(r: &mut BytesReader, bytes: &'a [u8]) -> Result<Self> {
+        let mut msg = Self::default();
+        while !r.is_eof() {
+            match r.next_tag(bytes) {
+                Ok(13) => msg.magic = r.read_fixed32(bytes)?,
+                Ok(21) => msg.length = r.read_fixed32(bytes)?,
+                Ok(t) => { r.read_unknown(bytes, t)?; }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(msg)
+    }
+}
+
+impl MessageWrite for StreamHeader {
+    fn get_size(&self) -> usize {
+        0
+        + if self.magic == 0u32 { 0 } else { 1 + 4 }
+        + if self.length == 0u32 { 0 } else { 1 + 4 }
+    }
+
+    fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
+        if self.magic != 0u32 { w.write_with_tag(13, |w| w.write_fixed32(*&self.magic))?; }
+        if self.length != 0u32 { w.write_with_tag(21, |w| w.write_fixed32(*&self.length))?; }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct HanMessage {
     pub uuid: Vec<u8>,
     pub msg: mod_HanMessage::OneOfmsg,
@@ -24,9 +59,9 @@ impl<'a> MessageRead<'a> for HanMessage {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(10) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
-                Ok(18) => msg.msg = mod_HanMessage::OneOfmsg::auth(r.read_message::<Auth>(bytes)?),
-                Ok(26) => msg.msg = mod_HanMessage::OneOfmsg::auth_result(r.read_message::<AuthResult>(bytes)?),
+                Ok(82) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(90) => msg.msg = mod_HanMessage::OneOfmsg::auth(r.read_message::<Auth>(bytes)?),
+                Ok(98) => msg.msg = mod_HanMessage::OneOfmsg::auth_result(r.read_message::<AuthResult>(bytes)?),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -46,9 +81,9 @@ impl MessageWrite for HanMessage {
     }    }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if !self.uuid.is_empty() { w.write_with_tag(10, |w| w.write_bytes(&**&self.uuid))?; }
-        match self.msg {            mod_HanMessage::OneOfmsg::auth(ref m) => { w.write_with_tag(18, |w| w.write_message(m))? },
-            mod_HanMessage::OneOfmsg::auth_result(ref m) => { w.write_with_tag(26, |w| w.write_message(m))? },
+        if !self.uuid.is_empty() { w.write_with_tag(82, |w| w.write_bytes(&**&self.uuid))?; }
+        match self.msg {            mod_HanMessage::OneOfmsg::auth(ref m) => { w.write_with_tag(90, |w| w.write_message(m))? },
+            mod_HanMessage::OneOfmsg::auth_result(ref m) => { w.write_with_tag(98, |w| w.write_message(m))? },
             mod_HanMessage::OneOfmsg::None => {},
     }        Ok(())
     }
@@ -83,7 +118,7 @@ impl<'a> MessageRead<'a> for Auth {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(10) => msg.username = r.read_string(bytes)?.to_owned(),
+                Ok(802) => msg.username = r.read_string(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -95,11 +130,11 @@ impl<'a> MessageRead<'a> for Auth {
 impl MessageWrite for Auth {
     fn get_size(&self) -> usize {
         0
-        + if self.username == String::default() { 0 } else { 1 + sizeof_len((&self.username).len()) }
+        + if self.username == String::default() { 0 } else { 2 + sizeof_len((&self.username).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.username != String::default() { w.write_with_tag(10, |w| w.write_string(&**&self.username))?; }
+        if self.username != String::default() { w.write_with_tag(802, |w| w.write_string(&**&self.username))?; }
         Ok(())
     }
 }
@@ -114,7 +149,7 @@ impl<'a> MessageRead<'a> for AuthResult {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(8) => msg.success = r.read_bool(bytes)?,
+                Ok(1600) => msg.success = r.read_bool(bytes)?,
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -126,11 +161,11 @@ impl<'a> MessageRead<'a> for AuthResult {
 impl MessageWrite for AuthResult {
     fn get_size(&self) -> usize {
         0
-        + if self.success == false { 0 } else { 1 + sizeof_varint(*(&self.success) as u64) }
+        + if self.success == false { 0 } else { 2 + sizeof_varint(*(&self.success) as u64) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.success != false { w.write_with_tag(8, |w| w.write_bool(*&self.success))?; }
+        if self.success != false { w.write_with_tag(1600, |w| w.write_bool(*&self.success))?; }
         Ok(())
     }
 }

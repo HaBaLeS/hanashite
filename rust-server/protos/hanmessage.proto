@@ -3,19 +3,24 @@ syntax="proto3";
 /**
  * Envelope to enable easy parsing of multiple types of messages
  */
+message StreamHeader {
+  fixed32 magic = 1;
+  fixed32 length = 2;
+}
+
 message HanMessage {
-  bytes uuid = 1;
+  bytes uuid = 10;
   oneof msg {
-    Auth auth = 2;
-    AuthResult auth_result = 3;
+    Auth auth = 11;
+    AuthResult auth_result = 12;
   }
 }
 
 
 message Auth {
-  string username = 1;
+  string username = 100;
 }
 
 message AuthResult {
-  bool success = 1;
+  bool success = 200;
 }

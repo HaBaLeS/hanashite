@@ -1,14 +1,13 @@
 use crate::controlserver::ServerState;
 use bytes::{BytesMut, Buf};
 
-use crate::protos::hanmessage::{HanMessage,Auth};
+use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
-use std::sync::Arc;
+use std::sync::{Arc,Mutex};
 use std::net::{SocketAddr, Shutdown};
 
 use tokio::net::{TcpStream};
 use tokio::stream::StreamExt;
-use tokio::sync::{Mutex};
 use tokio_util::codec::Framed;
 use tokio_util::codec::{Encoder, Decoder};
 use quick_protobuf::{BytesReader, MessageRead, Error, MessageWrite, BytesWriter,Writer};
@@ -85,19 +84,21 @@ impl ClientHandler {
 }
 
 
-const HEADER_LENGTH : usize = 8;
+const HEADER_LENGTH : usize = 10;
 
 impl MessageParser {
 
     fn read_header(src: &&mut BytesMut) -> Result<usize, Error> {
-        let data = &src[..8];
+        let data = &src[..10];
         let mut reader = BytesReader::from_bytes(data);
-        // Read MAGIC
-        match reader.read_fixed32(data) {
-            Ok(0x00008A71) => Ok(reader.read_fixed32(data).unwrap() as usize),
-            Ok(_) => Err(Message("MAGIC is gone !".to_string())),
-            Err(e) => Err(e)
+        let header = match StreamHeader::from_reader(&mut reader, data) {
+            Err(e) => return Err(e),
+            Ok(val) => val
+        };
+        if header.magic != 0x0008a71 {
+            return  Err(Message("MAGIC is gone !".to_string()));
         }
+        return Ok(header.length as usize);
     }
 }
 
@@ -147,7 +148,17 @@ impl Encoder<HanMessage> for MessageParser {
 
 #[cfg(test)]
 mod tests {
-    use quick_protobuf::Writer;
+    use quick_protobuf::{Writer, MessageWrite};
+    use crate::protos::hanmessage::StreamHeader;
+
+    #[test]
+    fn testheader() {
+        let header = StreamHeader {
+            magic: 0x00008A71,
+            length: 12345
+        };
+        println!("Header size: {}", header.get_size());
+    }
 
     #[test]
     fn testencode() {
