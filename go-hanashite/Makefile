@@ -2,7 +2,7 @@ VERSION := 0.0.1 #add git tag after first tag is created
 BUILD := $(shell git rev-parse --short HEAD)
 LDFLAGS= -X=main.Version=$(VERSION) -X=main.Build=$(BUILD)
 CHANGES := $(shell test -n "$$(git status --porcelain)" && echo '+CHANGES' || true)
-
+PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
 TARGET := hanashite-cli
 
 OS := linux windows darwin
@@ -20,6 +20,7 @@ build: vet lint
 clean:
 	go clean -i ./...
 	rm hanashite-cli
+	rm -rf serialize
 
 vet:
 	go vet ./...
@@ -30,3 +31,12 @@ lint:
 tools:
 	#go get -u github.com/mitchellh/gox
 	go get -u golang.org/x/lint/golint
+	go install google.golang.org/protobuf/cmd/protoc-gen-go
+
+protoc:
+	if [ ! -d "serialize" ]; then mkdir serialize ; fi
+	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/*.proto
+
+	
+
+.PHONY: clean, protoc

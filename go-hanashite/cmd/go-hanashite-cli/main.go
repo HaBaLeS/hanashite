@@ -8,6 +8,7 @@ import (
 
 	"github.com/gordonklaus/portaudio"
 	hanashite "github.com/habales/hanashite/go"
+	"github.com/habales/hanashite/go/serialize"
 	"github.com/teris-io/cli"
 )
 
@@ -152,4 +153,10 @@ func decodeAction(args []string, options map[string]string) int {
 	enc.Decode(infile, outfile)
 
 	return 0
+}
+
+func Test() {
+	hm := serialize.HanMessage{}
+
+	hm.GetAuthResult()
 }
