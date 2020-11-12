@@ -1,14 +1,30 @@
 extern crate tokio;
 extern crate bytes;
+
+use tokio::runtime::Builder;
+mod configuration;
 mod controlserver;
 mod clienthandler;
 mod protos;
 
-#[tokio::main]
-async fn main() {
-    let server = controlserver::ControlServer::new();
-    server.run().await.unwrap();
+use std::path::Path;
+
+fn main() {
+    configuration::init(Path::new("config.toml"));
+    let config = &configuration::cfg().runtime;
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(config.threads)
+        .thread_name(&config.thread_name)
+        .thread_stack_size(config.thread_stack)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let server = controlserver::ControlServer::new();
+        server.run().await.unwrap();
+    });
 }
+
 
 
 #[cfg(test)]
@@ -22,7 +38,7 @@ mod tests {
     use audiopus::coder::Encoder as OpusEncoder;
     use audiopus::coder::Decoder as OpusDecoder;
     use audiopus::{Application, Channels, SampleRate};
-    
+
     #[test]
     fn testrecode() {
         const SAMPLE_SIZE: usize=120;
