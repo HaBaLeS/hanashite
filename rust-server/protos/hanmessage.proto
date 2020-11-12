@@ -1,6 +1,5 @@
 
 syntax="proto3";
-option go_package = ".;serialize";
 
 /**
  * Envelope to enable easy parsing of multiple types of messages
