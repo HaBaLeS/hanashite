@@ -1,13 +1,12 @@
-use crate::clienthandler::ClientHandler;
+use crate::clienthandler::{ InternalMsg, run_client};
 
 use std::boxed::Box;
 use std::collections::{HashMap,HashSet};
 use std::error::Error;
 use std::result::Result;
 use std::sync::{Arc,Mutex};
-
 use tokio::net::{TcpListener};
-
+use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
 pub struct ControlServer {
@@ -17,7 +16,7 @@ pub struct ControlServer {
 #[allow(dead_code)]
 pub struct ServerState {
     channels: HashMap<String, HashSet<Uuid>>,
-    clients: HashMap<Uuid, String>
+    clients: HashMap<Uuid, Mutex<Sender<InternalMsg>>>
 }
 
 impl ServerState {
@@ -45,12 +44,10 @@ impl ControlServer {
         // Note that this is the Tokio TcpListener, which is fully async.
 
         loop {
-            let (stream, addr) = listener.accept().await?;
-            let state = Arc::clone(&state);
-            // Spawn our handler to be run asynchronously.
+            let (stream, _addr) = listener.accept().await?;
+            let local_state = Arc::clone(&state);
             tokio::spawn(async move {
-                let client_handler =  ClientHandler::new(state , addr);
-                client_handler.run(stream).await;
+                run_client(stream, local_state).await;
             });
         }
      }

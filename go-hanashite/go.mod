@@ -11,6 +11,6 @@ require (
 	github.com/rs/xid v1.2.1
 	github.com/teris-io/cli v1.0.1
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/tools v0.0.0-20201110181608-f6c1dd6914eb // indirect
+	golang.org/x/tools v0.0.0-20201113164040-559c4acc06b6 // indirect
 	google.golang.org/protobuf v1.25.0
 )

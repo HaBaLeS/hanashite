@@ -7,10 +7,13 @@ use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio_util::codec::Encoder;
 use bytes::BytesMut;
+use tokio::time::sleep;
+use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() {
     let mut stream = TcpStream::connect("127.0.0.1:9876").await.unwrap();
+    sleep(Duration::from_secs(10)).await;
     for _ in 1..100 {
         let msg = HanMessage {
             uuid: Vec::from(&Uuid::new_v4().as_bytes()[..]),
@@ -22,5 +25,6 @@ async fn main() {
         let mut output = BytesMut::new();
         parser.encode(msg, &mut output).expect("Encoding Failed");
         stream.write(&output[..]).await.expect("network failed");
+        sleep(Duration::from_millis(50)).await;
     }
 }

@@ -1,100 +1,162 @@
 use crate::controlserver::ServerState;
 use bytes::{BytesMut, Buf};
-
+use futures::SinkExt;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
-use std::sync::{Arc,Mutex};
-use std::net::{SocketAddr, Shutdown};
+use crate::util::Error;
+use std::sync::{Arc, Mutex};
 use tokio::net::{TcpStream};
 use tokio::stream::StreamExt;
-use tokio_util::codec::Framed;
+use tokio::time::timeout;
+use tokio_util::codec::{FramedWrite, FramedRead};
 use tokio_util::codec::{Encoder, Decoder};
-use quick_protobuf::{BytesReader,  Error, Writer, MessageWrite};
-use quick_protobuf::errors::Error::Message;
+use quick_protobuf::{BytesReader, Writer, MessageWrite};
 use uuid::Uuid;
-
+use crate::clienthandler::ClientState::LOGGEDIN;
+use tokio::sync::mpsc::{Sender, channel};
+use tokio::time::Duration;
+use tokio::sync::mpsc::error::TryRecvError;
 
 #[allow(dead_code)]
-pub struct ClientHandler {
-    state: Arc<Mutex<ServerState>>,
-    addr: SocketAddr,
+pub enum InternalMsg {
+    DISCONNECT,
+    SENDCTRL(HanMessage),
+    SENDVOICE,
+}
+
+pub enum ClientState {
+    CONNECTED,
+    LOGGEDIN,
+}
+
+#[allow(dead_code)]
+pub struct ClientHandle {
+    pub server: Arc<Mutex<ServerState>>,
+    username: String,
+    uuid: Uuid,
+    client_state: ClientState,
+    sender: Sender<InternalMsg>,
 }
 
 pub struct MessageParser {}
 
-impl ClientHandler {
-    pub fn new(state: Arc<Mutex<ServerState>>,
-               addr: SocketAddr) -> ClientHandler {
-        ClientHandler {
-            state,
-            addr,
+pub async fn run_client(pstream: TcpStream, server: Arc<Mutex<ServerState>>) {
+    let mut stream = pstream;
+    let uuid = Uuid::new_v4();
+    {
+        let (sender, mut receiver) = channel(100);
+        let (sender2, mut receiver2) = channel::<()>(1);
+        let client = Mutex::new(ClientHandle {
+            server,
+            username: "".to_string(),
+            uuid,
+            client_state: ClientState::CONNECTED,
+            sender,
+        });
+        {
+            let client_state = client.lock().unwrap();
+            println!("CONNECTION: {} Connected", &client_state.uuid);
         }
-    }
-}
+        let (read, write) = stream.split();
+        tokio::join!(
+            async move {
+                let mut messages = FramedRead::new(read, MessageParser {});
+                loop {
+                    let select = timeout(Duration::from_secs(1), messages.next()).await;
+                    match receiver2.try_recv() {
+                        Err(TryRecvError::Empty) => (),
+                        _ => { println!("Disconnect !!"); break }
+                    }
+                    match select {
+                        Err(_) =>{ println!("Timeout .. next"); },
+                        Ok(Some(Ok(result))) =>{ println!("proc"); process_message(&client, result).await },
+                        Ok(None)=> { println!("NONE"); break },
+                        _ => { println!("unknown"); break }
+                    }
 
+                }
+            },
+            async move {
+                let mut messages = FramedWrite::new(write, MessageParser {});
+                async fn disconnect(sender :&Sender<()>) {
+                     match sender.send(()).await {
+                        _ => ()
+                     };
+                }
+                while let Some(result) = receiver.next().await {
+                    match result {
+                        InternalMsg::DISCONNECT => disconnect(&sender2).await,
+                        InternalMsg::SENDCTRL(msg) => match messages.send(msg).await {
+                           Err(_) => disconnect(&sender2).await,
+                            _ => ()
+                        },
+                        InternalMsg::SENDVOICE => ()
+                    };
+                }
 
-
-impl ClientHandler {
-    pub async fn run(&self,
-                     stream: TcpStream) {
-        let mut messages = Framed::new(stream, MessageParser {});
-        while let Some(result) = messages.next().await {
-            match result {
-                Ok(msg) => self.process_message(msg, &mut messages),
-                Err(_) => return
             }
-        }
+        );
+        println!("Joined");
     }
+}
 
-    fn disconnect(&self, control: &mut Framed<TcpStream, MessageParser>) {
-        match control.get_mut().shutdown(Shutdown::Both) {
-            _ => ()
-        }
+async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
+    println!("MSG: {:?}", &data);
+    match multiplex(client, &data) {
+        Err(e) => disconnect(e.to_string(), client).await,
+        _ => ()
     }
+}
 
-    fn process_message(&self, data: HanMessage, control: &mut Framed<TcpStream, MessageParser>) {
-        match self.multiplex(&data) {
-            Err(_) => self.disconnect(control),
-            _ => ()
-        }
+async fn disconnect(_error: String, client: &Mutex<ClientHandle>) {
+    let local_sender = client.lock().unwrap().sender.clone();
+    match local_sender.send(InternalMsg::DISCONNECT).await {
+        _ => ()
     }
+}
 
-    fn multiplex(&self, data: &HanMessage) -> Result<(), Error> {
-        let uuid = match Uuid::from_slice(&data.uuid[..]) {
-            Err(_) => return Err(Error::Message("Illegal UUID".to_string())),
-            Ok(id) => id
-        };
-        match &data.msg {
-            OneOfmsg::auth(msg) => self.handle_auth(&uuid, &msg),
-            OneOfmsg::auth_result(_) => self.handle_illegal_msg(&uuid, "auth_result"),
-            _ => self.handle_illegal_msg(&uuid, "unknown_message")
-        }
+fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<(), Error> {
+    let uuid = match Uuid::from_slice(&data.uuid[..]) {
+        Err(_) => return Err(Error::ProtocolError("Illegal UUID".to_string())),
+        Ok(id) => id
+    };
+    match &data.msg {
+        OneOfmsg::auth(msg) => handle_auth(client, &uuid, &msg),
+        OneOfmsg::auth_result(_) => handle_illegal_msg(client, &uuid, "auth_result"),
+        _ => handle_illegal_msg(client, &uuid, "unknown_message")
     }
+}
 
-    fn handle_auth(&self, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
-        println!("Received Auth UUID: {}, user: {}", &uuid, &msg.username);
-        Ok(())
+/////////////////////
+// Message Handler //
+/////////////////////
+fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
+    let mut state = client.lock().unwrap();
+    if let LOGGEDIN = state.client_state {
+        return Err(Error::ProtocolError("Relogin after login !".to_string()));
     }
+    state.username = msg.username.clone();
+    state.client_state = ClientState::LOGGEDIN;
+    println!("CONNECTION: {} Received Auth UUID: {}, user: {}", &state.uuid, &uuid, &msg.username);
+    Ok(())
+}
 
-    fn handle_illegal_msg(&self, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
-        unimplemented!()
-    }
-
+fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
+    unimplemented!()
 }
 
 
-const HEADER_LENGTH : usize = 10;
+const HEADER_LENGTH: usize = 10;
 
 impl MessageParser {
-
     fn read_header(src: &mut BytesMut) -> Result<usize, Error> {
         let mut reader = BytesReader::from_bytes(src.bytes());
         let header: StreamHeader = match reader.read_message_by_len(src.bytes(), HEADER_LENGTH) {
-            Err(e) => return Err(e),
+            Err(e) => return Err(Error::from(e)),
             Ok(val) => val
         };
         if header.magic != 0x0008a71 {
-            return  Err(Message("MAGIC is gone !".to_string()));
+            return Err(Error::ProtocolError("MAGIC is gone !".to_string()));
         }
         return Ok(header.length as usize);
     }
@@ -103,7 +165,7 @@ impl MessageParser {
 
 impl Decoder for MessageParser {
     type Item = HanMessage;
-    type Error = quick_protobuf::Error;
+    type Error = Error;
 
     fn decode(
         &mut self,
@@ -126,7 +188,7 @@ impl Decoder for MessageParser {
         src.advance(size);
         match result {
             Ok(msg) => Ok(Some(msg)),
-            Err(e) => Err(e)
+            Err(e) => Err(Error::from(e))
         }
     }
 }
@@ -138,7 +200,7 @@ impl Encoder<HanMessage> for MessageParser {
         let mut writer = Writer::new(ByteMutWrite { delegate: dst });
         match (StreamHeader {
             magic: 0x00008A71,
-            length: message.get_size() as u32
+            length: message.get_size() as u32,
         }).write_message(&mut writer) {
             Err(e) => return Err(e),
             _ => ()
@@ -152,7 +214,6 @@ pub struct ByteMutWrite<'a> {
 }
 
 impl std::io::Write for ByteMutWrite<'_> {
-
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.delegate.extend_from_slice(buf);
         Ok(buf.len())
@@ -172,7 +233,7 @@ mod tests {
     fn testheader() {
         let header = StreamHeader {
             magic: 0x00008A71,
-            length: 12345
+            length: 12345,
         };
         println!("Header size: {}", header.get_size());
     }

@@ -6,6 +6,7 @@ mod configuration;
 mod controlserver;
 mod clienthandler;
 mod protos;
+mod util;
 
 use std::path::Path;
 
