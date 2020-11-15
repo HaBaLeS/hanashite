@@ -1,21 +1,22 @@
-use crate::controlserver::ServerState;
 use bytes::{BytesMut, Buf};
 use futures::SinkExt;
+use crate::clienthandler::ClientState::LOGGEDIN;
+use crate::controlserver::ServerState;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use crate::util::Error;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpStream};
+use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::stream::StreamExt;
-use tokio::time::timeout;
+use tokio::sync::mpsc::{Sender, channel, Receiver};
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::time::{timeout, Duration};
 use tokio_util::codec::{FramedWrite, FramedRead};
 use tokio_util::codec::{Encoder, Decoder};
+use tracing::{event, Level};
 use quick_protobuf::{BytesReader, Writer, MessageWrite};
 use uuid::Uuid;
-use crate::clienthandler::ClientState::LOGGEDIN;
-use tokio::sync::mpsc::{Sender, channel};
-use tokio::time::Duration;
-use tokio::sync::mpsc::error::TryRecvError;
 
 #[allow(dead_code)]
 pub enum InternalMsg {
@@ -24,11 +25,13 @@ pub enum InternalMsg {
     SENDVOICE,
 }
 
+#[derive(Debug)]
 pub enum ClientState {
     CONNECTED,
     LOGGEDIN,
 }
 
+#[derive(Debug)]
 #[allow(dead_code)]
 pub struct ClientHandle {
     pub server: Arc<Mutex<ServerState>>,
@@ -40,70 +43,94 @@ pub struct ClientHandle {
 
 pub struct MessageParser {}
 
-pub async fn run_client(pstream: TcpStream, server: Arc<Mutex<ServerState>>) {
+pub async fn run_client(uuid: Uuid, pstream: TcpStream, server: Arc<Mutex<ServerState>>) {
     let mut stream = pstream;
-    let uuid = Uuid::new_v4();
     {
-        let (sender, mut receiver) = channel(100);
-        let (sender2, mut receiver2) = channel::<()>(1);
-        let client = Mutex::new(ClientHandle {
-            server,
+        let (sender, receiver) = channel(100);
+        let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
+        let client = Arc::new(Mutex::new(ClientHandle {
+            server: server.clone(),
             username: "".to_string(),
             uuid,
             client_state: ClientState::CONNECTED,
             sender,
-        });
+        }));
         {
-            let client_state = client.lock().unwrap();
-            println!("CONNECTION: {} Connected", &client_state.uuid);
+            let mut server_state = server.lock().unwrap();
+            server_state.clients.insert(uuid, client.clone());
         }
         let (read, write) = stream.split();
         tokio::join!(
-            async move {
-                let mut messages = FramedRead::new(read, MessageParser {});
-                loop {
-                    let select = timeout(Duration::from_secs(1), messages.next()).await;
-                    match receiver2.try_recv() {
-                        Err(TryRecvError::Empty) => (),
-                        _ => { println!("Disconnect !!"); break }
-                    }
-                    match select {
-                        Err(_) =>{ println!("Timeout .. next"); },
-                        Ok(Some(Ok(result))) =>{ println!("proc"); process_message(&client, result).await },
-                        Ok(None)=> { println!("NONE"); break },
-                        _ => { println!("unknown"); break }
-                    }
-
-                }
-            },
-            async move {
-                let mut messages = FramedWrite::new(write, MessageParser {});
-                async fn disconnect(sender :&Sender<()>) {
-                     match sender.send(()).await {
-                        _ => ()
-                     };
-                }
-                while let Some(result) = receiver.next().await {
-                    match result {
-                        InternalMsg::DISCONNECT => disconnect(&sender2).await,
-                        InternalMsg::SENDCTRL(msg) => match messages.send(msg).await {
-                           Err(_) => disconnect(&sender2).await,
-                            _ => ()
-                        },
-                        InternalMsg::SENDVOICE => ()
-                    };
-                }
-
-            }
+            client_reader(read, shutdown_receiver, client.clone()),
+            client_writer(write, receiver, shutdown_sender)
         );
-        println!("Joined");
+        {
+            let mut server_state = server.lock().unwrap();
+            server_state.clients.remove(&uuid);
+        }
+        event!(Level::INFO, "Connection closed.");
     }
 }
 
+async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
+    let mut messages = FramedRead::new(read, MessageParser {});
+    loop {
+        let select = timeout(Duration::from_secs(1), messages.next()).await;
+        match shutdown_receiver.try_recv() {
+            Err(TryRecvError::Empty) => (),
+            _ => {
+                event!(Level::INFO, "Disconnect writer !");
+                break;
+            }
+        }
+        match select {
+            Err(_) => { event!(Level::TRACE, "Wait Timeout"); }
+            Ok(Some(Ok(result))) => {
+                event!(Level::TRACE, "Message received");
+                process_message(&client, result).await
+            }
+            Ok(None) => {
+                event!(Level::INFO, "Writer closed !");
+                break;
+            }
+            _ => {
+                event!(Level::WARN, "Unknown State");
+                break;
+            }
+        }
+    }
+    disconnect("Stream terminated !".to_string(), &client).await;
+    event!(Level::TRACE, "Reader closed");
+}
+
+async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>, shutdown_sender: Sender<()>) {
+    let mut messages = FramedWrite::new(write, MessageParser {});
+    async fn disconnect(sender: &Sender<()>) {
+        match sender.send(()).await {
+            Err(e) => event!(Level::TRACE, "Internal Disconnect msg failed: {}", e.to_string()),
+            _ => event!(Level::INFO, "Internal Disconnect msg sent")
+        };
+    }
+    while let Some(result) = receiver.next().await {
+        match result {
+            InternalMsg::DISCONNECT => { disconnect(&shutdown_sender).await; return; },
+            InternalMsg::SENDCTRL(msg) => match messages.send(msg).await {
+                Err(_) => disconnect(&shutdown_sender).await,
+                _ => ()
+            },
+            InternalMsg::SENDVOICE => ()
+        };
+    }
+    event!(Level::TRACE, "Writer closed");
+}
+
 async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
-    println!("MSG: {:?}", &data);
+    event!(Level::INFO, "Nessage: {:?}", &data);
     match multiplex(client, &data) {
-        Err(e) => disconnect(e.to_string(), client).await,
+        Err(e) => {
+            event!(Level::WARN, "{}", e.to_string());
+            disconnect(e.to_string(), client).await
+        }
         _ => ()
     }
 }
@@ -111,7 +138,8 @@ async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
 async fn disconnect(_error: String, client: &Mutex<ClientHandle>) {
     let local_sender = client.lock().unwrap().sender.clone();
     match local_sender.send(InternalMsg::DISCONNECT).await {
-        _ => ()
+        Err(e) => event!(Level::WARN, "Cleanup Failed {}", e.to_string()),
+        _ => event!(Level::TRACE, "Cleanup Message sent !")
     }
 }
 
@@ -137,12 +165,12 @@ fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<
     }
     state.username = msg.username.clone();
     state.client_state = ClientState::LOGGEDIN;
-    println!("CONNECTION: {} Received Auth UUID: {}, user: {}", &state.uuid, &uuid, &msg.username);
+    event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
     Ok(())
 }
 
 fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
-    unimplemented!()
+    Err(Error::ProtocolError("Illegal Message".to_string()))
 }
 
 
