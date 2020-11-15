@@ -19,9 +19,10 @@ message HanMessage {
 
 
 message Auth {
-  string username = 100;
+  string username = 20;
 }
 
 message AuthResult {
-  bool success = 200;
+  bool success = 30;
+  bytes connection_id = 31;
 }

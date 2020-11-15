@@ -118,7 +118,7 @@ impl<'a> MessageRead<'a> for Auth {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(802) => msg.username = r.read_string(bytes)?.to_owned(),
+                Ok(162) => msg.username = r.read_string(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -134,7 +134,7 @@ impl MessageWrite for Auth {
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.username != String::default() { w.write_with_tag(802, |w| w.write_string(&**&self.username))?; }
+        if self.username != String::default() { w.write_with_tag(162, |w| w.write_string(&**&self.username))?; }
         Ok(())
     }
 }
@@ -142,6 +142,7 @@ impl MessageWrite for Auth {
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct AuthResult {
     pub success: bool,
+    pub connection_id: Vec<u8>,
 }
 
 impl<'a> MessageRead<'a> for AuthResult {
@@ -149,7 +150,8 @@ impl<'a> MessageRead<'a> for AuthResult {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(1600) => msg.success = r.read_bool(bytes)?,
+                Ok(240) => msg.success = r.read_bool(bytes)?,
+                Ok(250) => msg.connection_id = r.read_bytes(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -162,10 +164,12 @@ impl MessageWrite for AuthResult {
     fn get_size(&self) -> usize {
         0
         + if self.success == false { 0 } else { 2 + sizeof_varint(*(&self.success) as u64) }
+        + if self.connection_id.is_empty() { 0 } else { 2 + sizeof_len((&self.connection_id).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if self.success != false { w.write_with_tag(1600, |w| w.write_bool(*&self.success))?; }
+        if self.success != false { w.write_with_tag(240, |w| w.write_bool(*&self.success))?; }
+        if !self.connection_id.is_empty() { w.write_with_tag(250, |w| w.write_bytes(&**&self.connection_id))?; }
         Ok(())
     }
 }

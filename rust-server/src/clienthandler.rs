@@ -2,7 +2,7 @@ use bytes::{BytesMut, Buf};
 use futures::SinkExt;
 use crate::clienthandler::ClientState::LOGGEDIN;
 use crate::controlserver::ServerState;
-use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader};
+use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use crate::util::Error;
 use std::sync::{Arc, Mutex};
@@ -88,13 +88,13 @@ async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, 
             Ok(Some(Ok(result))) => {
                 event!(Level::TRACE, "Message received");
                 process_message(&client, result).await
-            }
+            },
+            Ok(Some(Err(e))) => {
+                event!(Level::INFO, "Error {}", e.to_string());
+                break;
+            },
             Ok(None) => {
                 event!(Level::INFO, "Writer closed !");
-                break;
-            }
-            _ => {
-                event!(Level::WARN, "Unknown State");
                 break;
             }
         }
@@ -114,9 +114,12 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
     while let Some(result) = receiver.next().await {
         match result {
             InternalMsg::DISCONNECT => { disconnect(&shutdown_sender).await; return; },
-            InternalMsg::SENDCTRL(msg) => match messages.send(msg).await {
-                Err(_) => disconnect(&shutdown_sender).await,
-                _ => ()
+            InternalMsg::SENDCTRL(msg) => {
+                event!(Level::INFO, "Send Msg: {:?}", &msg);
+                match messages.send(msg).await {
+                    Err(_) => disconnect(&shutdown_sender).await,
+                    _ => event!(Level::TRACE, "Sent")
+                }
             },
             InternalMsg::SENDVOICE => ()
         };
@@ -126,7 +129,7 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
 
 async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
     event!(Level::INFO, "Nessage: {:?}", &data);
-    match multiplex(client, &data) {
+    match multiplex(client, &data).await {
         Err(e) => {
             event!(Level::WARN, "{}", e.to_string());
             disconnect(e.to_string(), client).await
@@ -143,33 +146,47 @@ async fn disconnect(_error: String, client: &Mutex<ClientHandle>) {
     }
 }
 
-fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<(), Error> {
+async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<(), Error> {
     let uuid = match Uuid::from_slice(&data.uuid[..]) {
         Err(_) => return Err(Error::ProtocolError("Illegal UUID".to_string())),
         Ok(id) => id
     };
     match &data.msg {
-        OneOfmsg::auth(msg) => handle_auth(client, &uuid, &msg),
-        OneOfmsg::auth_result(_) => handle_illegal_msg(client, &uuid, "auth_result"),
-        _ => handle_illegal_msg(client, &uuid, "unknown_message")
+        OneOfmsg::auth(msg) => handle_auth(client, &uuid, &msg).await,
+        OneOfmsg::auth_result(_) => handle_illegal_msg(client, &uuid, "auth_result").await,
+        _ => handle_illegal_msg(client, &uuid, "unknown_message").await
     }
 }
 
 /////////////////////
 // Message Handler //
 /////////////////////
-fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
-    let mut state = client.lock().unwrap();
-    if let LOGGEDIN = state.client_state {
-        return Err(Error::ProtocolError("Relogin after login !".to_string()));
+async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
+    let (sender,state_uuid) = {
+        let mut state = client.lock().unwrap();
+        if let LOGGEDIN = state.client_state {
+            return Err(Error::ProtocolError("Relogin after login !".to_string()));
+        }
+        state.username = msg.username.clone();
+        state.client_state = ClientState::LOGGEDIN;
+        event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
+        (state.sender.clone(), state.uuid)
+    };
+    match sender.send(InternalMsg::SENDCTRL(HanMessage {
+        uuid: Vec::from(&uuid.as_bytes()[..]),
+        msg: OneOfmsg::auth_result(
+            AuthResult {
+                success: true,
+                connection_id: Vec::from(&state_uuid.as_bytes()[..])
+            }
+        )
+    })).await {
+        Err(e) => Err(Error::ProtocolError(e.to_string())),
+        _ => Ok(())
     }
-    state.username = msg.username.clone();
-    state.client_state = ClientState::LOGGEDIN;
-    event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
-    Ok(())
 }
 
-fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
+async fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
     Err(Error::ProtocolError("Illegal Message".to_string()))
 }
 
