@@ -1,12 +1,11 @@
 use bytes::{BytesMut, Buf};
-use futures::{Future,SinkExt};
+use futures::SinkExt;
 use crate::clienthandler::ClientState::LOGGEDIN;
 use crate::controlserver::ServerState;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use crate::util::Error;
 use std::sync::{Arc, Mutex};
-use tokio::select;
 use tokio::net::{TcpStream};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::stream::StreamExt;
@@ -71,16 +70,13 @@ pub async fn run_client(uuid: Uuid, pstream: TcpStream, server: Arc<Mutex<Server
     }
 }
 
-async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
+async fn client_reader(read: ReadHalf<'_>, shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
     let mut messages = FramedRead::new(read, MessageParser {}).fuse();
     let mut fused_receiver = shutdown_receiver.fuse();
     loop {
         let select = tokio::select! {
             msg = messages.next() => msg,
-            _ = fused_receiver.next() => {
-                event!(Level::INFO, "Disconnect writer !");
-                break;
-            }
+            _ = fused_receiver.next() => { event!(Level::TRACE, "Disconnect event !");  break; }
         };
         match select {
             Some(Ok(result)) => {
@@ -88,7 +84,7 @@ async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, 
                 process_message(&client, result).await
             },
             Some(Err(e)) => {
-                event!(Level::INFO, "Error {}", e.to_string());
+                event!(Level::TRACE, "Error {}", e.to_string());
                 break;
             },
             None => {
@@ -98,7 +94,7 @@ async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, 
         }
     }
     disconnect("Stream terminated !".to_string(), &client).await;
-    event!(Level::TRACE, "Reader closed");
+    event!(Level::INFO, "Reader closed");
 }
 
 async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>, shutdown_sender: Sender<()>) {
@@ -106,23 +102,23 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
     async fn disconnect(sender: &Sender<()>) {
         match sender.send(()).await {
             Err(e) => event!(Level::TRACE, "Internal Disconnect msg failed: {}", e.to_string()),
-            _ => event!(Level::INFO, "Internal Disconnect msg sent")
+            _ => event!(Level::TRACE, "Internal Disconnect msg sent")
         };
     }
     while let Some(result) = receiver.next().await {
         match result {
-            InternalMsg::DISCONNECT => { disconnect(&shutdown_sender).await; return; },
+            InternalMsg::DISCONNECT => { disconnect(&shutdown_sender).await; break;  },
             InternalMsg::SENDCTRL(msg) => {
                 event!(Level::INFO, "Send Msg: {:?}", &msg);
                 match messages.send(msg).await {
                     Err(_) => disconnect(&shutdown_sender).await,
-                    _ => event!(Level::TRACE, "Sent")
+                    _ => event!(Level::TRACE, "Control Message sent !")
                 }
             },
             InternalMsg::SENDVOICE => ()
         };
     }
-    event!(Level::TRACE, "Writer closed");
+    event!(Level::INFO, "Writer closed");
 }
 
 async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
