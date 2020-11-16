@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 #[tokio::main]
 async fn main() {
     let mut handles:Vec<JoinHandle<()>> =  Vec::new();
-    for _ in 1..3 {
+    for _ in 1..20 {
         handles.push(tokio::spawn(connection()));
     }
     futures::future::join_all(handles).await;
@@ -23,8 +23,8 @@ async fn main() {
 
 async fn connection() {
     let mut stream = TcpStream::connect("127.0.0.1:9876").await.unwrap();
-    sleep(Duration::from_secs(10)).await;
-    for _ in 1..3 {
+    sleep(Duration::from_secs(1)).await;
+    for _ in 1..2 {
         let msg = HanMessage {
             uuid: Vec::from(&Uuid::new_v4().as_bytes()[..]),
             msg: OneOfmsg::auth(Auth {
@@ -35,6 +35,6 @@ async fn connection() {
         let mut output = BytesMut::new();
         parser.encode(msg, &mut output).expect("Encoding Failed");
         stream.write(&output[..]).await.expect("network failed");
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_secs(5)).await;
     }
 }

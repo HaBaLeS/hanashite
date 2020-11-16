@@ -2,8 +2,7 @@
 pub enum Error {
     IoError(std::io::Error),
     ProtoBufError(quick_protobuf::Error),
-    ProtocolError(String),
-    MiscError(String)
+    ProtocolError(String)
 }
 
 impl std::fmt::Display for Error {
@@ -12,7 +11,6 @@ impl std::fmt::Display for Error {
             Error::IoError(err) => err.fmt(f),
             Error::ProtoBufError(err) => err.fmt(f),
             Error::ProtocolError(msg) => write!(f, "Protocol Error: {}", msg),
-            Error::MiscError(msg) => write!(f, "Protocol Error: {}", msg)
         }
     }
 }

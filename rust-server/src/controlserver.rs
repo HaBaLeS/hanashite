@@ -2,14 +2,10 @@ use std::boxed::Box;
 use std::collections::{HashMap, HashSet};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
-use futures::future::FusedFuture;
-use futures::future::join_all;
 use tokio::net::{TcpListener, UdpSocket};
-use tracing::{error, info, Instrument, Level, span};
+use tracing::{info, Instrument, Level, span};
 use uuid::Uuid;
-use futures::stream::StreamExt;
 use crate::clienthandler::{ClientHandle, run_client};
-use crate::util::Error;
 use tokio::sync::mpsc::Sender;
 
 pub struct ControlServer {}
@@ -23,6 +19,7 @@ pub struct ServerState {
 
 }
 
+#[allow(dead_code)]
 pub enum UdpMessage {
     AudioPacket
 }
@@ -44,35 +41,27 @@ impl ControlServer {
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(ServerState::new()));
-//        let udp = tokio::spawn(listen_udp(state.clone()));
+        let udp = tokio::spawn(listen_udp(state.clone()));
         let tcp = tokio::spawn(listen_tcp(state.clone()));
-        let errors: Vec<Result<(), Error>> = join_all(vec!(tcp)).await
-            .iter()
-            .filter(|item| match item {
-                Ok(Ok(_)) => false,
-                _ => true
-            })
-            .map(|item| match item {
-                Ok(Err(e)) => Err(Error::MiscError(e.to_string())),
-                Err(e) => Err(Error::MiscError(e.to_string())),
-                _ => panic!("Impossible")
-            })
-            .collect();
-        error!("Join Failed: {:?}", errors);
-        if errors.len() > 0 {
-            Err(Box::new(Error::MiscError(format!("{:?}",errors))))
-        } else {
-            Ok(())
+
+        match tokio::join!(tcp, udp) {
+            (Ok(Ok(_)), Ok(Ok(_))) =>Ok(()),
+            (Err(e), _) => Err(Box::new(e)),
+            (_, Err(e)) => Err(Box::new(e)),
+            (Ok(Err(e)), _) => Err(Box::new(e)),
+            (_, Ok(Err(e))) => Err(Box::new(e))
         }
     }
 }
 
 async fn listen_udp(state: Arc<Mutex<ServerState>>) -> Result<(), std::io::Error> {
     let addr = "0.0.0.0:9876".to_string();
-    let socket = UdpSocket::bind(&addr).await?;
+    let socket = Arc::new(UdpSocket::bind(&addr).await?);
     info!("Starting UDP Listener on {}", &addr);
-    let r = Arc::new(socket);
-    let s = r.clone();
+    tokio::join!(
+        udp_client_read(state.clone(), socket.clone()),
+        udp_client_write(state.clone(), socket)
+    );
     Ok(())
 }
 
