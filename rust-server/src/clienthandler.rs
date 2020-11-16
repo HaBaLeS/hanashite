@@ -1,17 +1,16 @@
 use bytes::{BytesMut, Buf};
-use futures::SinkExt;
+use futures::{Future,SinkExt};
 use crate::clienthandler::ClientState::LOGGEDIN;
 use crate::controlserver::ServerState;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use crate::util::Error;
 use std::sync::{Arc, Mutex};
+use tokio::select;
 use tokio::net::{TcpStream};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::stream::StreamExt;
 use tokio::sync::mpsc::{Sender, channel, Receiver};
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::time::{timeout, Duration};
 use tokio_util::codec::{FramedWrite, FramedRead};
 use tokio_util::codec::{Encoder, Decoder};
 use tracing::{event, Level};
@@ -73,28 +72,27 @@ pub async fn run_client(uuid: Uuid, pstream: TcpStream, server: Arc<Mutex<Server
 }
 
 async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
-    let mut messages = FramedRead::new(read, MessageParser {});
+    let mut messages = FramedRead::new(read, MessageParser {}).fuse();
+    let mut fused_receiver = shutdown_receiver.fuse();
     loop {
-        let select = timeout(Duration::from_secs(1), messages.next()).await;
-        match shutdown_receiver.try_recv() {
-            Err(TryRecvError::Empty) => (),
-            _ => {
+        let select = tokio::select! {
+            msg = messages.next() => msg,
+            _ = fused_receiver.next() => {
                 event!(Level::INFO, "Disconnect writer !");
                 break;
             }
-        }
+        };
         match select {
-            Err(_) => { event!(Level::TRACE, "Wait Timeout"); }
-            Ok(Some(Ok(result))) => {
+            Some(Ok(result)) => {
                 event!(Level::TRACE, "Message received");
                 process_message(&client, result).await
             },
-            Ok(Some(Err(e))) => {
+            Some(Err(e)) => {
                 event!(Level::INFO, "Error {}", e.to_string());
                 break;
             },
-            Ok(None) => {
-                event!(Level::INFO, "Writer closed !");
+            None => {
+                event!(Level::INFO, "Connection closed");
                 break;
             }
         }
