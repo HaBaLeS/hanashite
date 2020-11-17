@@ -43,9 +43,8 @@ impl ControlServer {
         let state = Arc::new(Mutex::new(ServerState::new()));
         let udp = tokio::spawn(listen_udp(state.clone()));
         let tcp = tokio::spawn(listen_tcp(state.clone()));
-
         match tokio::join!(tcp, udp) {
-            (Ok(Ok(_)), Ok(Ok(_))) =>Ok(()),
+            (Ok(Ok(())), Ok(Ok(()))) =>Ok(()),
             (Err(e), _) => Err(Box::new(e)),
             (_, Err(e)) => Err(Box::new(e)),
             (Ok(Err(e)), _) => Err(Box::new(e)),
