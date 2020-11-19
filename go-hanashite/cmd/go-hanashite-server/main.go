@@ -6,9 +6,15 @@ import (
 	"os"
 
 	"github.com/golang/protobuf/proto"
+	"github.com/google/uuid"
 	"github.com/habales/hanashite/go/serialize"
 	"github.com/teris-io/cli"
 )
+
+type ClientJob struct {
+	name string
+	conn net.Conn
+}
 
 func main() {
 
@@ -19,6 +25,10 @@ func main() {
 }
 
 func startServer(args []string, options map[string]string) int {
+
+	//clientJobs := make(chan ClientJob)
+	//go handleIncoming(clientJobs)
+
 	l, err := net.Listen("tcp", args[0])
 	panicIfError(err)
 
@@ -37,12 +47,23 @@ func panicIfError(err error) {
 }
 
 func handleIncoming(conn net.Conn) {
-	fmt.Printf("Incoming client connection: %s\n", conn.LocalAddr())
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	panicIfError(err)
-	msg := &serialize.HanMessage{}
-	err = proto.Unmarshal(buf[:n], msg)
-	panicIfError(err)
-	fmt.Printf("Mfg: %s", string(msg.GetAuth().Username))
+	for {
+
+		fmt.Printf("Incoming client connection: %s\n", conn.LocalAddr())
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		panicIfError(err)
+		sh := &serialize.StreamHeader{}
+		msg := &serialize.HanMessage{}
+		err = proto.Unmarshal(buf[:10], sh)
+
+		fmt.Printf("Packet Read: %d, Stream header Size: %d\n", n, sh.GetLength())
+
+		panicIfError(err)
+		err = proto.Unmarshal(buf[10:10+sh.GetLength()], msg)
+		panicIfError(err)
+		uuidd, err := uuid.FromBytes(msg.GetUuid())
+		panicIfError(err)
+		fmt.Printf("%s: %s\n ", uuidd.String(), string(msg.GetAuth().Username))
+	}
 }

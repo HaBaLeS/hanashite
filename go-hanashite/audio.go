@@ -9,13 +9,43 @@ import (
 	"github.com/gordonklaus/portaudio"
 )
 
+
+
+const (
+	SR48000 float64 = 48000
+	SR44100 float64 = 44100
+
+	MS2_5 int = 2.5
+	MS5 int = 5
+	MS10 int = 10
+	MS20 int = 20
+	MS40 int = 40
+	MS60 int = 60
+)
+
 type Recorder struct {
-	recording bool
-	file      string
+	recording       bool
+	file            string
+	sampleRate      float64
+	frameLength     int
+	frameBufferSize int
+	channels        int
+}
+
+type AudioFrame struct {
+	Data16 []int16
+	Data32 []float32
+
+	max float32 //calculate dB
+	min float32 //calculate dB
+	median float32 //calculate dB
 }
 
 type Player struct {
 }
+
+
+
 
 func InitAudio() {
 	fmt.Println("Terminating Initializing")
@@ -28,11 +58,18 @@ func TerminateAudio() {
 }
 
 func NewRecorder(file string) *Recorder {
-	return &Recorder{
-		recording: false,
-		file:      file,
+	r :=  &Recorder{
+		recording:   false,
+		file:        file,
+		sampleRate:  SR48000,
+		frameLength: MS20,
+		channels:    1,
+
 	}
+	r.frameBufferSize = sampleRate / 1000 * r.frameLength * channels
+	return r
 }
+
 
 func (r *Recorder) StopRecording() {
 	r.recording = false
@@ -42,12 +79,10 @@ func (r *Recorder) StartRecording() {
 	f, err := os.Create(r.file)
 
 	//The latency in milliseconds due to this buffering  is:
-	//latency_msec = 1000 * numBuffers * framesPerBuffer / framesPerSecond
-	numInputChannels := 1
-	framesPerBuffer := 64
-	sampleRate := 48000.0
-	in := make([]int16, framesPerBuffer)
-	stream, err := portaudio.OpenDefaultStream(numInputChannels, 0, sampleRate, framesPerBuffer, in)
+	//latency_msec = 1000 * channels * framesPerBuffer / framesPerSecond
+
+	in := make([]int16, r.frameBufferSize) //check Portaudio.go#sampleFormat for the available formats
+	stream, err := portaudio.OpenDefaultStream(r.channels, 0, r.sampleRate, r.frameBufferSize, in)
 	if err != nil {
 		panic(err)
 	}
@@ -102,7 +137,6 @@ func (p *Player) Play(file string) {
 		if err != nil {
 			panic(err)
 		}
-
 	}
 
 }
