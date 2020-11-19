@@ -1,14 +1,27 @@
 # hanashite
 
 ## Golang
-On Linux do:
 
+### Prequisite:
+
+Install C Libraries
+#### Ubuntu
+    
+     portaudio19-dev libopusfile-dev libopus-dev
+
+#### Correct GO setup
+Make sure you have your GOPATH:/bin exported in your PATH while calling Make. 
+
+
+### On Linux do:
+
+     make tools #needed only once
      make build
      ./hanashite-cli version
      ./hanashite-cli devicelist
 
 
-Usage:
+### Usage:
 
     Description:
         Commandline Version of go-hanashite
