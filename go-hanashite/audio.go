@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/gordonklaus/portaudio"
 )
@@ -15,7 +16,7 @@ const (
 	SR48000 float64 = 48000
 	SR44100 float64 = 44100
 
-	MS2_5 int = 2.5
+	//MS2_5 int = 25
 	MS5 int = 5
 	MS10 int = 10
 	MS20 int = 20
@@ -30,15 +31,24 @@ type Recorder struct {
 	frameLength     int
 	frameBufferSize int
 	channels        int
+	pipeline *Pipeline
+
+	frameNum int
 }
 
 type AudioFrame struct {
 	Data16 []int16
-	Data32 []float32
+	//Data32 []float32
 
-	max float32 //calculate dB
-	min float32 //calculate dB
-	median float32 //calculate dB
+	FrameNum int
+
+	max int16 //calculate dB
+	min int16 //calculate dB
+	median int //calculate dB
+
+	StartTime time.Time
+	EndTime time.Time
+	ProcTime time.Duration
 }
 
 type Player struct {
@@ -65,8 +75,10 @@ func NewRecorder(file string) *Recorder {
 		frameLength: MS20,
 		channels:    1,
 
+		frameNum: 0,
 	}
 	r.frameBufferSize = sampleRate / 1000 * r.frameLength * channels
+	r.pipeline = NewPipeline()
 	return r
 }
 
@@ -76,7 +88,7 @@ func (r *Recorder) StopRecording() {
 }
 
 func (r *Recorder) StartRecording() {
-	f, err := os.Create(r.file)
+	f, err := os.Create(r.file) //FIXME this file needs to be put into the pipelie!!
 
 	//The latency in milliseconds due to this buffering  is:
 	//latency_msec = 1000 * channels * framesPerBuffer / framesPerSecond
@@ -95,10 +107,29 @@ func (r *Recorder) StartRecording() {
 	r.recording = true
 	go func() {
 		for r.recording {
+
+			af := &AudioFrame{ //do we to create a frame pool?
+				StartTime: time.Now(),
+				Data16: make([]int16, r.frameBufferSize),
+				FrameNum: r.frameNum,
+			}
 			err = stream.Read()
-			err = binary.Write(f, binary.BigEndian, in)
-			//nSamples += len(in)
-			fmt.Print(".")
+			if err != nil {
+				panic(err)
+			}
+			r.frameNum++
+			if err != nil {
+				panic(err)
+			}
+			copy(af.Data16,in)
+
+			//FIXME Writet to file
+
+			//err = binary.Write(af.Data16, binary.BigEndian, in)
+			//if err != nil {
+			//	panic(err)
+			//}
+			r.pipeline.Process(af)
 		}
 		stream.Close()
 		f.Close()
