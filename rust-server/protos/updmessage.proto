@@ -7,9 +7,7 @@ syntax="proto3";
  */
 message HanUdpMessage {
   bytes user_id = 111;
-  oneof msg {
-    AudioPacket auth = 100;
-  }
+  AudioPacket audio_frame = 100;
 }
 
 message AudioPacket {
