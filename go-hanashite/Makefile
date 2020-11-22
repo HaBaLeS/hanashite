@@ -10,7 +10,7 @@ ARCH := amd64
 
 build: vet lint
 	go build  -ldflags "$(LDFLAGS)" -o hanashite-cli cmd/go-hanashite-cli/main.go 
-	go build  -ldflags "$(LDFLAGS)" -o dbg-hanashite-client cmd/dbg-hanashite-client/main.go 
+	#go build  -ldflags "$(LDFLAGS)" -o dbg-hanashite-client cmd/dbg-hanashite-client/main.go
 	go build  -ldflags "$(LDFLAGS)" -o hanashite-server cmd/go-hanashite-server/main.go 
 
 #Cross compile wth CGO enabled requires to set up compilers and SDK's ... will do that later in a VM or container
@@ -22,7 +22,6 @@ build: vet lint
 clean:
 	go clean -i ./...
 	rm hanashite-cli
-	rm -rf serialize
 
 vet:
 	go vet ./...
@@ -37,7 +36,8 @@ tools:
 
 protoc:
 	if [ ! -d "serialize" ]; then mkdir serialize ; fi
-	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/*.proto
+	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/hanmessage.proto
+	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/updmessage.proto
 
 	
 

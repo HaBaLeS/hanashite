@@ -2,13 +2,12 @@ package main
 
 import (
 	"fmt"
-	"net"
-	"os"
-
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/habales/hanashite/go/serialize"
 	"github.com/teris-io/cli"
+	"net"
+	"os"
 )
 
 type ClientJob struct {
@@ -31,11 +30,46 @@ func startServer(args []string, options map[string]string) int {
 
 	l, err := net.Listen("tcp", args[0])
 	panicIfError(err)
+	a, e := net.ResolveUDPAddr("udp","0.0.0.0:9876")
+	if e != nil {
+		panic(e)
+	}
+	uc, ex := net.ListenUDP("udp",  a)
+	if ex != nil {
+		panic(ex)
+	}
+	go handleUDP(uc)
 
 	for {
 		conn, err := l.Accept()
 		panicIfError(err)
 		go handleIncoming(conn)
+	}
+
+}
+
+func handleUDP(uc *net.UDPConn) {
+	for {
+		buf := make([]byte, 4096)
+		n, addr, err := uc.ReadFromUDP(buf)
+		panicIfError(err)
+		sh := &serialize.StreamHeader{}
+		ap := &serialize.HanUdpMessage{}
+
+
+		//get stream header
+		err = proto.Unmarshal(buf[:10], sh)
+		panicIfError(err)
+		//fmt.Printf("Packet Read: %d, Stream header Size: %d from: %s\n", n, sh.GetLength(), addr.String())
+
+		err = proto.Unmarshal(buf[10:10+sh.GetLength()], ap)
+		panicIfError(err)
+
+		fmt.Printf("Received: %d\n", n)
+
+		x, err := uc.WriteToUDP(buf[:n], addr)
+		panicIfError(err)
+		fmt.Printf("Sending back: %d\n", x)
 	}
 
 }
@@ -65,5 +99,6 @@ func handleIncoming(conn net.Conn) {
 		uuidd, err := uuid.FromBytes(msg.GetUuid())
 		panicIfError(err)
 		fmt.Printf("%s: %s\n ", uuidd.String(), string(msg.GetAuth().Username))
+
 	}
 }

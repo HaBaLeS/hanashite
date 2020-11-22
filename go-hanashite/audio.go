@@ -33,18 +33,20 @@ type Recorder struct {
 	channels        int
 	pipeline *Pipeline
 
-	frameNum int
+	frameNum uint64
 }
 
 type AudioFrame struct {
 	Data16 []int16
 	//Data32 []float32
+	Encoded []byte
+	EncBytes int
 
-	FrameNum int
+	FrameNum uint64
 
-	max int16 //calculate dB
-	min int16 //calculate dB
-	median int //calculate dB
+	Max int16 //calculate dB
+	Min int16 //calculate dB
+	Median int //calculate dB
 
 	StartTime time.Time
 	EndTime time.Time
@@ -67,18 +69,16 @@ func TerminateAudio() {
 	portaudio.Terminate()
 }
 
-func NewRecorder(file string) *Recorder {
+func NewRecorder(pipeline *Pipeline) *Recorder {
 	r :=  &Recorder{
 		recording:   false,
-		file:        file,
 		sampleRate:  SR48000,
 		frameLength: MS20,
 		channels:    1,
-
-		frameNum: 0,
+		pipeline:    pipeline,
+		frameNum:    0,
 	}
 	r.frameBufferSize = sampleRate / 1000 * r.frameLength * channels
-	r.pipeline = NewPipeline()
 	return r
 }
 
@@ -123,12 +123,6 @@ func (r *Recorder) StartRecording() {
 			}
 			copy(af.Data16,in)
 
-			//FIXME Writet to file
-
-			//err = binary.Write(af.Data16, binary.BigEndian, in)
-			//if err != nil {
-			//	panic(err)
-			//}
 			r.pipeline.Process(af)
 		}
 		stream.Close()

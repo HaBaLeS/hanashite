@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/habales/hanashite/go/pipeline"
 	"html/template"
 	"os"
 	"os/signal"
@@ -59,16 +60,90 @@ func main() {
 		WithArg(cli.NewArg("in", "opus to decode")).
 		WithArg(cli.NewArg("out", "file to write pcm to"))
 
+	ppl := cli.NewCommand("pipeline", "Start full pipeline").WithAction(pipelineAction)
+
+
 	app := cli.New("Commandline Version of go-hanashite").
 		WithCommand(dlist).
 		WithCommand(version).
 		WithCommand(recorder).
 		WithCommand(encode).
 		WithCommand(decode).
-		WithCommand(player)
+		WithCommand(player).
+		WithCommand(ppl)
 
 	os.Exit(app.Run(os.Args, os.Stdout))
 
+}
+
+func pipelineAction(args []string, options map[string]string) int {
+	fmt.Println("Start Pipeline")
+
+	hanashite.InitAudio()
+	defer hanashite.TerminateAudio()
+
+	uvm := pipeline.NewUVMeter()
+	udpproc, err := pipeline.NewUDPProc("davidhausen.de:9876")
+	panicOnError(err)
+
+	encoder, err  := pipeline.NewOpusEncoder(int(hanashite.SR48000), 1)
+	panicOnError(err)
+
+	if err != nil {
+		panic(err)
+	}
+
+	sendingPipeline := hanashite.NewPipeline().
+		AddProcessor(uvm.GetFrameProcessor()).
+		AddProcessor(encoder.EncodeFrameProcessor()).
+		AddProcessor(hanashite.EndTime).
+		AddProcessor(udpproc.OutgoingFrameProcessor())
+
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, os.Kill)
+
+
+
+
+	rec := hanashite.NewRecorder(sendingPipeline)
+	rec.StartRecording()
+
+	decoder, err := pipeline.NewOpusDecoder(int(hanashite.SR48000), 1)
+	panicOnError(err)
+
+	player := pipeline.NewPortAudioPlayer()
+
+	recv := hanashite.NewPipeline().
+		AddProcessor(udpproc.IncomingFrameProcessor()).
+		AddProcessor(decoder.DecodeFrameProcessor()).
+		AddProcessor(player.PortAudioFrameProcessor())
+
+
+	go func(){
+		for true {
+			recv.Process(&hanashite.AudioFrame{})
+		}
+	}()
+
+	//FIXME make outgoing also a pipeline step
+
+	for {
+		select {
+		case <-sig:
+			fmt.Println("\nStopped Recording")
+			rec.StopRecording() //FIXME wait for shutdown!
+			return 0
+		default:
+		}
+	}
+
+}
+
+func panicOnError(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
 
 func listDevicesAction(args []string, options map[string]string) int {
@@ -90,7 +165,7 @@ func listDevicesAction(args []string, options map[string]string) int {
 }
 
 func recordAction(args []string, options map[string]string) int {
-	outfile := args[0]
+	/*outfile := args[0]
 	hanashite.InitAudio()
 	defer hanashite.TerminateAudio()
 
@@ -116,7 +191,10 @@ func recordAction(args []string, options map[string]string) int {
 			return 0
 		default:
 		}
-	}
+	}*/
+
+	fmt.Println("Need to implement pipeleine with only wav out not enc out")
+	return 0
 }
 
 func playerAction(args []string, options map[string]string) int {
