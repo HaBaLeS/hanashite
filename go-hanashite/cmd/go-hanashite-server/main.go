@@ -10,17 +10,9 @@ import (
 	"os"
 )
 
-type ClientJob struct {
-	name string
-	conn net.Conn
-}
-
 func main() {
-
 	app := cli.New("Hanashite Server go-version").WithArg(cli.NewArg("addr", "Host and port.")).WithAction(startServer)
-
 	os.Exit(app.Run(os.Args, os.Stdout))
-
 }
 
 func startServer(args []string, options map[string]string) int {

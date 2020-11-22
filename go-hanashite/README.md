@@ -1,7 +1,7 @@
 # TODO
 - [x] Implement pipeline framework
 - [ ] fix the protoc to include the go package via import
-- [ ] remove recorde command
+- [X] remove recorde command
 - [x] make pipeline configurable with builder pattern
 - [x] research and calculate the 
 # Architecture

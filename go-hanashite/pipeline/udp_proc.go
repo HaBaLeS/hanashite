@@ -4,21 +4,25 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/habales/hanashite/go"
 	"github.com/habales/hanashite/go/serialize"
 	"google.golang.org/protobuf/proto"
 	"net"
 )
 
-const MAX_UDP_PACKET_SIZE = 508 //to never have a fragmented packet! https://stackoverflow.com/questions/1098897/what-is-the-largest-safe-udp-packet-size-on-the-internet
+//MaxUDPPacketSize defined the save size of a UDP packet to be guranteed to not get fragmented. See:
+//https://stackoverflow.com/questions/1098897/what-is-the-largest-safe-udp-packet-size-on-the-internet for Detaiils
+const MaxUDPPacketSize = 508
 
+
+//UDPProcessor is a Pipeline step to send and receive UDP Audio Frames
 type UDPProcessor struct {
 	conn net.Conn
-	userId []byte
-	channelId []byte
+	userID []byte
+	channelID []byte
 
 }
 
+//NewUDPProc creates a new UDPProcessor responsible for Sending frames to a server and receiving them.
 func NewUDPProc(addr string) (*UDPProcessor, error){
 	conn, err :=  net.Dial("udp",addr)
 	if err != nil {
@@ -27,28 +31,30 @@ func NewUDPProc(addr string) (*UDPProcessor, error){
 
 	return &UDPProcessor{
 		conn: conn,
-		userId: []byte("falko"),
-		channelId: []byte("secret world"),
+		userID: []byte("falko"),
+		channelID: []byte("secret world"),
 	}, nil
 }
 
-func (u *UDPProcessor) OutgoingFrameProcessor() hanashite.FrameProcessor {
-	return func(frame *hanashite.AudioFrame){
+//OutgoingFrameProcessor wraps the FrameProcessor function for sending
+func (u *UDPProcessor) OutgoingFrameProcessor() FrameProcessor {
+	return func(frame *AudioFrame){
 		u.processOutgoing(frame)
 	}
 }
 
-func (u *UDPProcessor) IncomingFrameProcessor() hanashite.FrameProcessor {
-	return func(frame *hanashite.AudioFrame){
+//IncomingFrameProcessor wraps the FrameProcessor function for receiving
+func (u *UDPProcessor) IncomingFrameProcessor() FrameProcessor {
+	return func(frame *AudioFrame){
 		u.processIncomming(frame)
 	}
 }
 
-func (u *UDPProcessor) processOutgoing(frame *hanashite.AudioFrame) {
+func (u *UDPProcessor) processOutgoing(frame *AudioFrame) {
 	data := serialize.HanUdpMessage{
-		UserId: u.userId,
+		UserId: u.userID,
 		AudioFrame: &serialize.AudioPacket{
-			ChannelId: u.channelId,
+			ChannelId: u.channelID,
 			SequernceId: frame.FrameNum,
 			Data: frame.Encoded[:frame.EncBytes],
 		},
@@ -64,16 +70,16 @@ func (u *UDPProcessor) processOutgoing(frame *hanashite.AudioFrame) {
 	out2, err := proto.Marshal(&sh)
 	n1, err := u.conn.Write(append(out2, out1...))
 	panicIfError(err)
-	if n1 > MAX_UDP_PACKET_SIZE {
+	if n1 > MaxUDPPacketSize {
 		panic("Sent a packet that could be fragmented!!")
 	}
 	fmt.Printf("Send Frame of lenght: %d bytes\n", n1)
 }
 
-func (u *UDPProcessor) processIncomming(frame *hanashite.AudioFrame) {
+func (u *UDPProcessor) processIncomming(frame *AudioFrame) {
 
 	//FIXME assuming we always get full packages!!!!
-	buf := make([]byte, MAX_UDP_PACKET_SIZE)
+	buf := make([]byte, MaxUDPPacketSize)
 	n, err := u.conn.Read(buf)
 	panicIfError(err)
 

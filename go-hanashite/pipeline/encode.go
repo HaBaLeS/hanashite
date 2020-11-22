@@ -3,59 +3,49 @@ package pipeline
 import (
 	"encoding/binary"
 	"fmt"
-	hanashite "github.com/habales/hanashite/go"
 	"github.com/hraban/opus"
 )
 
-type OpusEncoder struct {
+//OpusCodec is a Pipeline step to encode/decode Opus
+type OpusCodec struct {
 	encoder *opus.Encoder
-	sampleRate int
-	channels int
-}
-
-type OpusDecoder struct {
 	decoder *opus.Decoder
 	sampleRate int
 	channels int
 }
 
-func NewOpusEncoder(sampleRate, channels int) (*OpusEncoder, error){
+//NewOpusCodec create a new Pipeline step to encode/decode PCM to OPUS frames
+func NewOpusCodec(sampleRate, channels int) (*OpusCodec, error){
 	enc, err := opus.NewEncoder(sampleRate, channels, opus.AppVoIP)
+	panicIfError(err)
+	dec, err := opus.NewDecoder(sampleRate, channels)
+	panicIfError(err)
 	if err != nil {
 		return nil, err
 	}
-	return &OpusEncoder{
+	return &OpusCodec{
 		encoder: enc,
+		decoder: dec,
 		channels: channels,
 		sampleRate: sampleRate,
 	}, nil
 }
 
-func NewOpusDecoder(sampleRate, channels int) (*OpusDecoder, error){
-	enc, err := opus.NewDecoder(sampleRate, channels)
-	if err != nil {
-		return nil, err
-	}
-	return &OpusDecoder{
-		decoder: enc,
-		channels: channels,
-		sampleRate: sampleRate,
-	}, nil
-}
-
-func (oe *OpusEncoder) EncodeFrameProcessor() hanashite.FrameProcessor {
-	return func(frame *hanashite.AudioFrame){
+//EncodeFrameProcessor returns the FrameProcessor to Encode PCM frames
+func (oe *OpusCodec) EncodeFrameProcessor() FrameProcessor {
+	return func(frame *AudioFrame){
 		oe.encode(frame)
 	}
 }
 
-func (oe *OpusDecoder) DecodeFrameProcessor() hanashite.FrameProcessor {
-	return func(frame *hanashite.AudioFrame){
+//DecodeFrameProcessor returns the FrameProcessor to decode Opus to PCM
+func (oe *OpusCodec) DecodeFrameProcessor() FrameProcessor {
+	return func(frame *AudioFrame){
 		oe.decode(frame)
 	}
 }
 
-func (oe *OpusDecoder) decode(frame *hanashite.AudioFrame) {
+func (oe *OpusCodec) decode(frame *AudioFrame) {
 
 	//FIXME drop frame if frameNum is before the last one!!!
 	//Store info to drop in frame
@@ -70,7 +60,7 @@ func (oe *OpusDecoder) decode(frame *hanashite.AudioFrame) {
 	fmt.Printf("DecodePCM with size: %d\n", binary.Size(frame.Data16))
 }
 
-func (oe *OpusEncoder) encode(frame *hanashite.AudioFrame) {
+func (oe *OpusCodec) encode(frame *AudioFrame) {
 
 	pcm := frame.Data16
 	//var pcm []int16 =  // obtain your raw PCM data somewhere
@@ -90,11 +80,9 @@ func (oe *OpusEncoder) encode(frame *hanashite.AudioFrame) {
 	}
 	//End Debug
 
-
 	frame.Encoded = make([]byte, bufferSize)
 	n, err := oe.encoder.Encode(pcm, frame.Encoded)
 	frame.EncBytes = n
 	panicIfError(err)
 	fmt.Printf("encoded sample size: %d\n", n )
-
 }

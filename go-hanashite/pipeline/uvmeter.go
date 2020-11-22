@@ -2,27 +2,29 @@ package pipeline
 
 import (
 	"fmt"
-	"github.com/habales/hanashite/go"
 	"math"
 )
 
 const int16max float64 = 32768
 
+//UVMeter is a pipeline step that calculates the dBFS (dB-FullScale) for the recorded audio signal
 type UVMeter struct {
 
 }
 
+//NewUVMeter create a new Pipeline step UVMeter
 func NewUVMeter() *UVMeter {
 	return &UVMeter{}
 }
 
-func (u *UVMeter) GetFrameProcessor() hanashite.FrameProcessor {
-	return func(frame *hanashite.AudioFrame) {
+//FrameProcessor return the FrameProcessor needed to UVMeter
+func (u *UVMeter) FrameProcessor() FrameProcessor {
+	return func(frame *AudioFrame) {
 		u.detectActivity(frame)
 	}
 }
 
-func  (u *UVMeter) detectActivity(frame *hanashite.AudioFrame){
+func  (u *UVMeter) detectActivity(frame *AudioFrame){
 	min := frame.Data16[0]
 	max := frame.Data16[0]
 	var avg float64 = 0
