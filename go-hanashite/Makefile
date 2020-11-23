@@ -3,7 +3,8 @@ BUILD := $(shell git rev-parse --short HEAD)
 LDFLAGS= -X=main.Version=$(VERSION) -X=main.Build=$(BUILD)
 CHANGES := $(shell test -n "$$(git status --porcelain)" && echo '+CHANGES' || true)
 PROTOC_GEN_GO := $(GOPATH)/bin/protoc-gen-go
-
+INPUT_PROTO=$(wildcard ../rust-server/protos/*.proto)
+OUTPUT_PROTO=$(patsubst ../rust-server/protos/%.proto,serialize/%.pb.go,$(INPUT_PROTO))
 
 OS := linux windows darwin
 ARCH := amd64
@@ -34,11 +35,16 @@ tools:
 	go get -u golang.org/x/lint/golint
 	go install google.golang.org/protobuf/cmd/protoc-gen-go
 
-protoc:
-	if [ ! -d "serialize" ]; then mkdir serialize ; fi
-	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/hanmessage.proto
-	protoc -I=../rust-server/protos --go_out=serialize ../rust-server/protos/updmessage.proto
+serialize/%.pb.go: ../rust-server/protos/%.proto always
+	$(eval TMP := $(shell mktemp -d))
+	$(eval PROTO_FILE :=  $(TMP)/$(shell basename $<))
+	cat  "$<" protos/han.proto >$(PROTO_FILE)
+	protoc -I=$(TMP) --go_out=serialize $(PROTO_FILE)
+	-rm -rf $(TMP)
 
-	
 
-.PHONY: clean, protoc
+protoc: $(OUTPUT_PROTO)
+
+always:
+
+.PHONY: clean protoc always
