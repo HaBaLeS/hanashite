@@ -52,7 +52,7 @@ func (u *UDPProcessor) processOutgoing(frame *AudioFrame) {
 	data := serialize.HanUdpMessage{
 		UserId: u.userID,
 		Msg: &serialize.HanUdpMessage_AudioFrame{
-			&serialize.AudioPacket{
+			AudioFrame: &serialize.AudioPacket{
 				ChannelId:   u.channelID,
 				SequernceId: frame.FrameNum,
 				Data:        frame.Encoded[:frame.EncBytes],
