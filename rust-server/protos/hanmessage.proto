@@ -1,5 +1,5 @@
-
 syntax="proto3";
+
 
 /**
  * Envelope to enable easy parsing of multiple types of messages

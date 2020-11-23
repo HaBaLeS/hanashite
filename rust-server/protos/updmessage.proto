@@ -1,13 +1,18 @@
-
 syntax="proto3";
-
 
 /**
  * Udp Message Envelope
  */
 message HanUdpMessage {
   bytes user_id = 111;
-  AudioPacket audio_frame = 100;
+  oneof msg  {
+    AudioPacket audio_frame = 100;
+    PingPacket ping_packet = 101;
+  }
+}
+
+message PingPacket {
+
 }
 
 message AudioPacket {
