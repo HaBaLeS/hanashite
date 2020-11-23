@@ -14,6 +14,14 @@ message HanMessage {
   oneof msg {
     Auth auth = 11;
     AuthResult auth_result = 12;
+    ChannelList chan_lst = 13;
+    ChannelListResult chan_lst_result = 14;
+    ChannelJoin chan_join = 15;
+    ChannelJoinResult chan_join_result = 16;
+    ChannelPart chan_part = 17;
+    ChannelPartResult  chan_part_result = 18;
+    ChannelStatus chan_status = 19;
+    ChannelStatusResult chan_status_result = 20;
   }
 }
 
@@ -25,4 +33,45 @@ message Auth {
 message AuthResult {
   bool success = 30;
   bytes connection_id = 31;
+}
+
+
+message ChannelList {
+  // NIL
+}
+
+message ChannelListentry {
+  string name = 40;
+  bytes uuid = 41;
+}
+
+message ChannelListResult {
+  repeated ChannelListentry channel = 45;
+}
+
+message ChannelJoin {
+  string name = 50;
+  bytes uuid = 51;
+}
+
+message ChannelJoinResult {
+  bool success = 60;
+  bytes channel_uuid = 61;
+
+}
+
+message ChannelPart {
+  // Nil
+}
+
+message ChannelPartResult {
+  bool success = 80;
+}
+
+message ChannelStatus {
+  bytes uuid = 90;
+}
+
+message ChannelStatusResult {
+  // TODO
 }

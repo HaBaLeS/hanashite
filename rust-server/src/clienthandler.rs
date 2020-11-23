@@ -1,11 +1,12 @@
 use bytes::{BytesMut, Buf};
 use futures::SinkExt;
-use crate::clienthandler::ClientState::LOGGEDIN;
+use crate::clienthandler::ClientState::{LOGGEDIN};
 use crate::controlserver::ServerState;
-use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult};
+use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use crate::util::Error;
 use std::sync::{Arc, Mutex};
+use std::net::SocketAddr;
 use tokio::net::{TcpStream};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::stream::StreamExt;
@@ -20,7 +21,6 @@ use uuid::Uuid;
 pub enum InternalMsg {
     DISCONNECT,
     SENDCTRL(HanMessage),
-    SENDVOICE,
 }
 
 #[derive(Debug)]
@@ -33,41 +33,43 @@ pub enum ClientState {
 #[allow(dead_code)]
 pub struct ClientHandle {
     pub server: Arc<Mutex<ServerState>>,
-    username: String,
-    uuid: Uuid,
-    client_state: ClientState,
-    sender: Sender<InternalMsg>,
+    pub username: String,
+    pub uuid: Uuid,
+    pub client_state: ClientState,
+    pub udp_socket: Option<SocketAddr>,
+    pub sender: Sender<InternalMsg>,
 }
 
 pub struct MessageParser {}
 
-pub async fn run_client(uuid: Uuid, pstream: TcpStream, server: Arc<Mutex<ServerState>>) {
-    let mut stream = pstream;
+pub async fn run_client(uuid: Uuid, mut stream: TcpStream, server: Arc<Mutex<ServerState>>) {
+    let (sender, receiver) = channel(100);
+    let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
+    let client = Arc::new(Mutex::new(ClientHandle {
+        server: server.clone(),
+        username: "".to_string(),
+        uuid,
+        client_state: ClientState::CONNECTED,
+        udp_socket: None,
+        sender,
+    }));
     {
-        let (sender, receiver) = channel(100);
-        let (shutdown_sender, shutdown_receiver) = channel::<()>(1);
-        let client = Arc::new(Mutex::new(ClientHandle {
-            server: server.clone(),
-            username: "".to_string(),
-            uuid,
-            client_state: ClientState::CONNECTED,
-            sender,
-        }));
-        {
-            let mut server_state = server.lock().unwrap();
-            server_state.clients.insert(uuid, client.clone());
-        }
-        let (read, write) = stream.split();
-        tokio::join!(
+        let mut server_state = server.lock().unwrap();
+        server_state.clients.insert(uuid, client.clone());
+    }
+    let (read, write) = stream.split();
+    tokio::join!(
             client_reader(read, shutdown_receiver, client.clone()),
             client_writer(write, receiver, shutdown_sender)
         );
-        {
-            let mut server_state = server.lock().unwrap();
-            server_state.clients.remove(&uuid);
+    {
+        let mut server_state = server.lock().unwrap();
+        for channel in server_state.channels.values_mut() {
+            channel.users.remove(&uuid);
         }
-        event!(Level::INFO, "Connection closed.");
+        server_state.clients.remove(&uuid);
     }
+    event!(Level::INFO, "Connection closed.");
 }
 
 async fn client_reader(read: ReadHalf<'_>, shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
@@ -82,11 +84,11 @@ async fn client_reader(read: ReadHalf<'_>, shutdown_receiver: Receiver<()>, clie
             Some(Ok(result)) => {
                 event!(Level::TRACE, "Message received");
                 process_message(&client, result).await
-            },
+            }
             Some(Err(e)) => {
                 event!(Level::TRACE, "Error {}", e.to_string());
                 break;
-            },
+            }
             None => {
                 event!(Level::INFO, "Connection closed");
                 break;
@@ -107,15 +109,17 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
     }
     while let Some(result) = receiver.next().await {
         match result {
-            InternalMsg::DISCONNECT => { disconnect(&shutdown_sender).await; break;  },
+            InternalMsg::DISCONNECT => {
+                disconnect(&shutdown_sender).await;
+                break;
+            }
             InternalMsg::SENDCTRL(msg) => {
                 event!(Level::INFO, "Send Msg: {:?}", &msg);
                 match messages.send(msg).await {
                     Err(_) => disconnect(&shutdown_sender).await,
                     _ => event!(Level::TRACE, "Control Message sent !")
                 }
-            },
-            InternalMsg::SENDVOICE => ()
+            }
         };
     }
     event!(Level::INFO, "Writer closed");
@@ -147,6 +151,10 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
     };
     match &data.msg {
         OneOfmsg::auth(msg) => handle_auth(client, &uuid, &msg).await,
+        OneOfmsg::chan_join(msg) => handle_chan_join(client, &uuid, &msg).await,
+        OneOfmsg::chan_part(msg) => handle_chan_part(client, &uuid, &msg).await,
+        OneOfmsg::chan_lst(msg) => handle_chan_lst(client, &uuid, &msg).await,
+        OneOfmsg::chan_status(msg) => handle_chan_status(client, &uuid, &msg).await,
         OneOfmsg::auth_result(_) => handle_illegal_msg(client, &uuid, "auth_result").await,
         _ => handle_illegal_msg(client, &uuid, "unknown_message").await
     }
@@ -155,8 +163,54 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
 /////////////////////
 // Message Handler //
 /////////////////////
+
+async fn handle_chan_status(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelStatus) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn handle_chan_lst(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelList) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn handle_chan_part(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelPart) -> Result<(), Error> {
+    unimplemented!()
+}
+
+async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelJoin) -> Result<(), Error> {
+    let (sender, message) =  || -> Result<(Sender<InternalMsg>, ChannelJoinResult), Error>{
+        let state = client.lock().unwrap();
+        if let ClientState::CONNECTED = state.client_state {
+            return Err(Error::ProtocolError("Not Logged in".to_string()));
+        }
+        let mut server = state.server.lock().unwrap();
+        for channel in server.channels.values_mut() {
+            channel.users.remove(&state.uuid);
+        }
+        for (channel_id, channel) in server.channels.iter_mut() {
+            if channel.name == msg.name {
+                channel.users.insert(state.uuid);
+                return Ok((state.sender.clone(), ChannelJoinResult {
+                    success: true,
+                    channel_uuid: Vec::from(&channel_id.as_bytes()[..]),
+                }));
+            }
+        }
+        return Ok((state.sender.clone(), ChannelJoinResult {
+            success: false,
+            channel_uuid: vec![],
+        }));
+    }()?;
+    match sender.send(InternalMsg::SENDCTRL(HanMessage {
+        uuid: Vec::from(&uuid.as_bytes()[..]),
+        msg: OneOfmsg::chan_join_result(message),
+    })).await {
+        Err(e) => return Err(Error::ProtocolError(e.to_string())),
+        _ => return Ok(())
+    }
+}
+
 async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
-    let (sender,state_uuid) = {
+    let (sender, state_uuid) = {
         let mut state = client.lock().unwrap();
         if let LOGGEDIN = state.client_state {
             return Err(Error::ProtocolError("Relogin after login !".to_string()));
@@ -171,9 +225,9 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
         msg: OneOfmsg::auth_result(
             AuthResult {
                 success: true,
-                connection_id: Vec::from(&state_uuid.as_bytes()[..])
+                connection_id: Vec::from(&state_uuid.as_bytes()[..]),
             }
-        )
+        ),
     })).await {
         Err(e) => Err(Error::ProtocolError(e.to_string())),
         _ => Ok(())
@@ -249,7 +303,7 @@ impl Encoder<HanMessage> for MessageParser {
 }
 
 pub struct ByteMutWrite<'a> {
-    delegate: &'a mut BytesMut
+    pub delegate: &'a mut BytesMut
 }
 
 impl std::io::Write for ByteMutWrite<'_> {

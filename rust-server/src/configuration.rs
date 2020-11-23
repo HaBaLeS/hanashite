@@ -20,10 +20,17 @@ pub struct Runtime {
 
 #[derive(Debug, Deserialize)]
 pub struct Server {
-    #[serde(default = "Server::default_port")]
-    pub port: u16,
-    #[serde(default = "Server::default_ip")]
-    pub ip: String,
+    #[serde(default = "Server::default_tcp_port")]
+    pub tcp_port: u16,
+    #[serde(default = "Server::default_tcp_bind_ip")]
+    pub tcp_bind_ip: String,
+    #[serde(default = "Server::default_udp_port")]
+    pub udp_port: u16,
+    #[serde(default = "Server::default_udp_bind_ip")]
+    pub udp_bind_ip: String,
+    #[serde(default = "Server::default_udp_buffer")]
+    pub udp_buffer: usize,
+
 }
 
 
@@ -60,12 +67,24 @@ impl Runtime {
 }
 
 impl Server {
-    fn default_port() -> u16 {
+    fn default_tcp_port() -> u16 {
         9876
     }
 
-    fn default_ip() -> String {
+    fn default_tcp_bind_ip() -> String {
         "0.0.0.0".to_string()
+    }
+
+    fn default_udp_port() -> u16 {
+        9876
+    }
+
+    fn default_udp_bind_ip() -> String {
+        "0.0.0.0".to_string()
+    }
+
+    fn default_udp_buffer() -> usize {
+        2^16
     }
 }
 
@@ -135,8 +154,8 @@ mod tests {
     fn testconfig() {
         crate::configuration::init(Path::new("resources/empty.toml"));
         let myconfig = crate::configuration::cfg();
-        assert_eq!(myconfig.server.port, 9876);
-        assert_eq!(myconfig.server.ip, "0.0.0.0");
+        assert_eq!(myconfig.server.tcp_port, 9876);
+        assert_eq!(myconfig.server.tcp_bind_ip, "0.0.0.0");
         println!("Config: {:#?}", myconfig);
     }
 }
