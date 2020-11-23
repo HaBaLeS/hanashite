@@ -6,6 +6,7 @@ use tokio::runtime::Builder;
 mod configuration;
 mod controlserver;
 mod clienthandler;
+mod udphandler;
 mod protos;
 mod util;
 

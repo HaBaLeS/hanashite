@@ -4,7 +4,7 @@ use crate::clienthandler::ClientState::{LOGGEDIN};
 use crate::controlserver::ServerState;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult};
 use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
-use crate::util::Error;
+use crate::util::{ByteMutWrite,Error};
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream};
@@ -302,20 +302,6 @@ impl Encoder<HanMessage> for MessageParser {
     }
 }
 
-pub struct ByteMutWrite<'a> {
-    pub delegate: &'a mut BytesMut
-}
-
-impl std::io::Write for ByteMutWrite<'_> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.delegate.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

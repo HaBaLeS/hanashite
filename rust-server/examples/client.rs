@@ -4,7 +4,7 @@ use rust_hanashite::protos::hanmessage::*;
 use rust_hanashite::protos::updmessage::*;
 use rust_hanashite::protos::hanmessage::mod_HanMessage::OneOfmsg;
 use rust_hanashite::clienthandler::MessageParser;
-use rust_hanashite::controlserver::UdpMessageParser;
+use rust_hanashite::udphandler::UdpMessageParser;
 use uuid::Uuid;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio_util::codec::{Framed, Encoder};
@@ -15,7 +15,6 @@ use futures::SinkExt;
 use tokio::stream::StreamExt;
 use std::sync::Arc;
 use bytes::{BytesMut, Buf};
-use std::net::Shutdown;
 
 #[tokio::main]
 async fn main() {
@@ -65,7 +64,7 @@ async fn connection(udp_socket: Arc<UdpSocket>) {
             user_id: Vec::from(&connection_id.as_bytes()[..]),
             audio_frame: None
 
-        }, &mut buf);
+        }, &mut buf).expect("Encoder broken");
         udp_socket.send(buf.bytes()).await.expect("Udp Failed");
         sleep(Duration::from_secs(10)).await;
 
