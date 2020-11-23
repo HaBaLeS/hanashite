@@ -50,7 +50,7 @@ impl MessageWrite for StreamHeader {
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct HanMessage {
-    pub uuid: Vec<u8>,
+    pub message_id: Vec<u8>,
     pub msg: mod_HanMessage::OneOfmsg,
 }
 
@@ -59,7 +59,7 @@ impl<'a> MessageRead<'a> for HanMessage {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(82) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(82) => msg.message_id = r.read_bytes(bytes)?.to_owned(),
                 Ok(90) => msg.msg = mod_HanMessage::OneOfmsg::auth(r.read_message::<Auth>(bytes)?),
                 Ok(98) => msg.msg = mod_HanMessage::OneOfmsg::auth_result(r.read_message::<AuthResult>(bytes)?),
                 Ok(106) => msg.msg = mod_HanMessage::OneOfmsg::chan_lst(r.read_message::<ChannelList>(bytes)?),
@@ -81,7 +81,7 @@ impl<'a> MessageRead<'a> for HanMessage {
 impl MessageWrite for HanMessage {
     fn get_size(&self) -> usize {
         0
-        + if self.uuid.is_empty() { 0 } else { 1 + sizeof_len((&self.uuid).len()) }
+        + if self.message_id.is_empty() { 0 } else { 1 + sizeof_len((&self.message_id).len()) }
         + match self.msg {
             mod_HanMessage::OneOfmsg::auth(ref m) => 1 + sizeof_len((m).get_size()),
             mod_HanMessage::OneOfmsg::auth_result(ref m) => 1 + sizeof_len((m).get_size()),
@@ -97,7 +97,7 @@ impl MessageWrite for HanMessage {
     }    }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if !self.uuid.is_empty() { w.write_with_tag(82, |w| w.write_bytes(&**&self.uuid))?; }
+        if !self.message_id.is_empty() { w.write_with_tag(82, |w| w.write_bytes(&**&self.message_id))?; }
         match self.msg {            mod_HanMessage::OneOfmsg::auth(ref m) => { w.write_with_tag(90, |w| w.write_message(m))? },
             mod_HanMessage::OneOfmsg::auth_result(ref m) => { w.write_with_tag(98, |w| w.write_message(m))? },
             mod_HanMessage::OneOfmsg::chan_lst(ref m) => { w.write_with_tag(106, |w| w.write_message(m))? },
@@ -221,7 +221,7 @@ impl MessageWrite for ChannelList { }
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct ChannelListentry {
     pub name: String,
-    pub uuid: Vec<u8>,
+    pub id: Vec<u8>,
 }
 
 impl<'a> MessageRead<'a> for ChannelListentry {
@@ -230,7 +230,7 @@ impl<'a> MessageRead<'a> for ChannelListentry {
         while !r.is_eof() {
             match r.next_tag(bytes) {
                 Ok(322) => msg.name = r.read_string(bytes)?.to_owned(),
-                Ok(330) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(330) => msg.id = r.read_bytes(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -243,12 +243,12 @@ impl MessageWrite for ChannelListentry {
     fn get_size(&self) -> usize {
         0
         + if self.name == String::default() { 0 } else { 2 + sizeof_len((&self.name).len()) }
-        + if self.uuid.is_empty() { 0 } else { 2 + sizeof_len((&self.uuid).len()) }
+        + if self.id.is_empty() { 0 } else { 2 + sizeof_len((&self.id).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
         if self.name != String::default() { w.write_with_tag(322, |w| w.write_string(&**&self.name))?; }
-        if !self.uuid.is_empty() { w.write_with_tag(330, |w| w.write_bytes(&**&self.uuid))?; }
+        if !self.id.is_empty() { w.write_with_tag(330, |w| w.write_bytes(&**&self.id))?; }
         Ok(())
     }
 }
@@ -287,7 +287,7 @@ impl MessageWrite for ChannelListResult {
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct ChannelJoin {
     pub name: String,
-    pub uuid: Vec<u8>,
+    pub channel_id: Vec<u8>,
 }
 
 impl<'a> MessageRead<'a> for ChannelJoin {
@@ -296,7 +296,7 @@ impl<'a> MessageRead<'a> for ChannelJoin {
         while !r.is_eof() {
             match r.next_tag(bytes) {
                 Ok(402) => msg.name = r.read_string(bytes)?.to_owned(),
-                Ok(410) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(410) => msg.channel_id = r.read_bytes(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -309,12 +309,12 @@ impl MessageWrite for ChannelJoin {
     fn get_size(&self) -> usize {
         0
         + if self.name == String::default() { 0 } else { 2 + sizeof_len((&self.name).len()) }
-        + if self.uuid.is_empty() { 0 } else { 2 + sizeof_len((&self.uuid).len()) }
+        + if self.channel_id.is_empty() { 0 } else { 2 + sizeof_len((&self.channel_id).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
         if self.name != String::default() { w.write_with_tag(402, |w| w.write_string(&**&self.name))?; }
-        if !self.uuid.is_empty() { w.write_with_tag(410, |w| w.write_bytes(&**&self.uuid))?; }
+        if !self.channel_id.is_empty() { w.write_with_tag(410, |w| w.write_bytes(&**&self.channel_id))?; }
         Ok(())
     }
 }
@@ -322,7 +322,7 @@ impl MessageWrite for ChannelJoin {
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct ChannelJoinResult {
     pub success: bool,
-    pub channel_uuid: Vec<u8>,
+    pub channel_id: Vec<u8>,
 }
 
 impl<'a> MessageRead<'a> for ChannelJoinResult {
@@ -331,7 +331,7 @@ impl<'a> MessageRead<'a> for ChannelJoinResult {
         while !r.is_eof() {
             match r.next_tag(bytes) {
                 Ok(480) => msg.success = r.read_bool(bytes)?,
-                Ok(490) => msg.channel_uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(490) => msg.channel_id = r.read_bytes(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -344,12 +344,12 @@ impl MessageWrite for ChannelJoinResult {
     fn get_size(&self) -> usize {
         0
         + if self.success == false { 0 } else { 2 + sizeof_varint(*(&self.success) as u64) }
-        + if self.channel_uuid.is_empty() { 0 } else { 2 + sizeof_len((&self.channel_uuid).len()) }
+        + if self.channel_id.is_empty() { 0 } else { 2 + sizeof_len((&self.channel_id).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
         if self.success != false { w.write_with_tag(480, |w| w.write_bool(*&self.success))?; }
-        if !self.channel_uuid.is_empty() { w.write_with_tag(490, |w| w.write_bytes(&**&self.channel_uuid))?; }
+        if !self.channel_id.is_empty() { w.write_with_tag(490, |w| w.write_bytes(&**&self.channel_id))?; }
         Ok(())
     }
 }
@@ -399,7 +399,7 @@ impl MessageWrite for ChannelPartResult {
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct ChannelStatus {
-    pub uuid: Vec<u8>,
+    pub channel_id: Vec<u8>,
 }
 
 impl<'a> MessageRead<'a> for ChannelStatus {
@@ -407,7 +407,7 @@ impl<'a> MessageRead<'a> for ChannelStatus {
         let mut msg = Self::default();
         while !r.is_eof() {
             match r.next_tag(bytes) {
-                Ok(722) => msg.uuid = r.read_bytes(bytes)?.to_owned(),
+                Ok(722) => msg.channel_id = r.read_bytes(bytes)?.to_owned(),
                 Ok(t) => { r.read_unknown(bytes, t)?; }
                 Err(e) => return Err(e),
             }
@@ -419,11 +419,11 @@ impl<'a> MessageRead<'a> for ChannelStatus {
 impl MessageWrite for ChannelStatus {
     fn get_size(&self) -> usize {
         0
-        + if self.uuid.is_empty() { 0 } else { 2 + sizeof_len((&self.uuid).len()) }
+        + if self.channel_id.is_empty() { 0 } else { 2 + sizeof_len((&self.channel_id).len()) }
     }
 
     fn write_message<W: WriterBackend>(&self, w: &mut Writer<W>) -> Result<()> {
-        if !self.uuid.is_empty() { w.write_with_tag(722, |w| w.write_bytes(&**&self.uuid))?; }
+        if !self.channel_id.is_empty() { w.write_with_tag(722, |w| w.write_bytes(&**&self.channel_id))?; }
         Ok(())
     }
 }

@@ -17,6 +17,6 @@ message PingPacket {
 
 message AudioPacket {
   bytes channel_id = 110;
-  uint64 sequernce_id = 112;
+  uint64 sequence_id = 112;
   bytes data = 113;
 }

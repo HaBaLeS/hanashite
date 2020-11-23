@@ -10,7 +10,7 @@ message StreamHeader {
 }
 
 message HanMessage {
-  bytes uuid = 10;
+  bytes message_id = 10;
   oneof msg {
     Auth auth = 11;
     AuthResult auth_result = 12;
@@ -42,7 +42,7 @@ message ChannelList {
 
 message ChannelListentry {
   string name = 40;
-  bytes uuid = 41;
+  bytes id = 41;
 }
 
 message ChannelListResult {
@@ -51,12 +51,12 @@ message ChannelListResult {
 
 message ChannelJoin {
   string name = 50;
-  bytes uuid = 51;
+  bytes channel_id = 51;
 }
 
 message ChannelJoinResult {
   bool success = 60;
-  bytes channel_uuid = 61;
+  bytes channel_id = 61;
 
 }
 
@@ -69,7 +69,7 @@ message ChannelPartResult {
 }
 
 message ChannelStatus {
-  bytes uuid = 90;
+  bytes channel_id = 90;
 }
 
 message ChannelStatusResult {

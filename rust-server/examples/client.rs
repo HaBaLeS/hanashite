@@ -34,7 +34,7 @@ async fn connection(udp_socket: Arc<UdpSocket>) {
     sleep(Duration::from_secs(1)).await;
     for _ in 1..2 {
         framed.send(HanMessage {
-            uuid: Vec::from(&Uuid::new_v4().as_bytes()[..]),
+            message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
             msg: OneOfmsg::auth(Auth {
                 username: "testme".to_string()
             }),
@@ -50,23 +50,40 @@ async fn connection(udp_socket: Arc<UdpSocket>) {
             return;
         };
         framed.send(HanMessage {
-            uuid: Vec::from(&Uuid::new_v4().as_bytes()[..]),
+            message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
             msg: OneOfmsg::chan_join(ChannelJoin {
                 name: "testchannel".to_string(),
-                uuid: vec![0, 0],
+                channel_id: vec![0, 0],
             }),
         }).await.expect("Send Failed");
-        if let Some(msg) = framed.next().await {
+        let channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
             println!("Received {:?}", msg);
-        }
+            if let OneOfmsg::chan_join_result(result) = msg.msg {
+                Uuid::from_slice(result.channel_id.as_slice()).unwrap()
+            } else {
+                return;
+            }
+        } else {
+            return;
+        };
         let mut buf = BytesMut::new();
-        codec.encode(HanUdpMessage {
+        let udp_message = HanUdpMessage {
             user_id: Vec::from(&connection_id.as_bytes()[..]),
-            audio_frame: None
-
-        }, &mut buf).expect("Encoder broken");
+            msg: mod_HanUdpMessage::OneOfmsg::ping_packet(PingPacket {}),
+        };
+        codec.encode(udp_message, &mut buf).expect("Encoder broken");
+        udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+        let mut buf = BytesMut::new();
+        let udp_message = HanUdpMessage {
+            user_id: Vec::from(&connection_id.as_bytes()[..]),
+            msg: mod_HanUdpMessage::OneOfmsg::audio_frame(AudioPacket {
+                channel_id: Vec::from(&channel_id.as_bytes()[..]),
+                data: vec![1, 2, 3],
+                sequence_id: 1,
+            }),
+        };
+        codec.encode(udp_message, &mut buf).expect("Encoder broken");
         udp_socket.send(buf.bytes()).await.expect("Udp Failed");
         sleep(Duration::from_secs(10)).await;
-
     }
 }

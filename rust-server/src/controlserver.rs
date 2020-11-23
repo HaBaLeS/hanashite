@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::clienthandler::{ClientHandle, run_client};
 use crate::configuration;
-use crate::udphandler::{udp_client_read, udp_client_write, UdpMessage};
+use crate::udphandler::{udp_client_read, udp_client_write, InternalUdpMsg};
 
 pub struct ControlServer {}
 
@@ -18,7 +18,7 @@ pub struct ControlServer {}
 pub struct ServerState {
     pub channels: HashMap<Uuid, ChannelState>,
     pub clients: HashMap<Uuid, Arc<Mutex<ClientHandle>>>,
-    pub udp_sender: Option<Sender<UdpMessage>>,
+    pub udp_sender: Option<Sender<InternalUdpMsg>>,
 }
 
 #[derive(Debug)]

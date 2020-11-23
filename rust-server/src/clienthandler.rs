@@ -145,7 +145,7 @@ async fn disconnect(_error: String, client: &Mutex<ClientHandle>) {
 }
 
 async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<(), Error> {
-    let uuid = match Uuid::from_slice(&data.uuid[..]) {
+    let uuid = match Uuid::from_slice(&data.message_id[..]) {
         Err(_) => return Err(Error::ProtocolError("Illegal UUID".to_string())),
         Ok(id) => id
     };
@@ -191,17 +191,17 @@ async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Chann
                 channel.users.insert(state.uuid);
                 return Ok((state.sender.clone(), ChannelJoinResult {
                     success: true,
-                    channel_uuid: Vec::from(&channel_id.as_bytes()[..]),
+                    channel_id: Vec::from(&channel_id.as_bytes()[..]),
                 }));
             }
         }
         return Ok((state.sender.clone(), ChannelJoinResult {
             success: false,
-            channel_uuid: vec![],
+            channel_id: vec![],
         }));
     }()?;
     match sender.send(InternalMsg::SENDCTRL(HanMessage {
-        uuid: Vec::from(&uuid.as_bytes()[..]),
+        message_id: Vec::from(&uuid.as_bytes()[..]),
         msg: OneOfmsg::chan_join_result(message),
     })).await {
         Err(e) => return Err(Error::ProtocolError(e.to_string())),
@@ -221,7 +221,7 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
         (state.sender.clone(), state.uuid)
     };
     match sender.send(InternalMsg::SENDCTRL(HanMessage {
-        uuid: Vec::from(&uuid.as_bytes()[..]),
+        message_id: Vec::from(&uuid.as_bytes()[..]),
         msg: OneOfmsg::auth_result(
             AuthResult {
                 success: true,
