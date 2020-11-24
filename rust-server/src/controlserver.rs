@@ -67,9 +67,13 @@ async fn listen_udp(state: Arc<Mutex<ServerState>>) -> Result<(), std::io::Error
     let addr = format!("{}:{}",&config.udp_bind_ip, &config.udp_port);
     let socket = Arc::new(UdpSocket::bind(&addr).await?);
     let (sender, receiver) = channel(100);
+    {
+        let mut state = state.lock().unwrap();
+        state.udp_sender = Some(sender);
+    }
     info!("Starting UDP Listener on {}", &addr);
     tokio::join!(
-        udp_client_read(state.clone(), socket.clone(), sender),
+        udp_client_read(state.clone(), socket.clone()),
         udp_client_write(state, socket, receiver)
     );
     Ok(())
@@ -85,11 +89,11 @@ async fn listen_tcp(state: Arc<Mutex<ServerState>>) -> Result<(), std::io::Error
     // Note that this is the Tokio TcpListener, which is fully async.
     loop {
         let (stream, addr) = listener.accept().await?;
-        let local_state = Arc::clone(&state);
-        info!("Acception Connection from {}", &addr);
+        let state = Arc::clone(&state);
+        info!("Accepting Connection from {}", &addr);
         tokio::spawn(async move {
             let uuid = Uuid::new_v4();
-            run_client(uuid, stream, local_state)
+            run_client(uuid, stream, state)
                 .instrument(span!(Level::ERROR, "Connection", "{}", &uuid))
                 .await;
         });

@@ -136,11 +136,11 @@ async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
     }
 }
 
-async fn disconnect(_error: String, client: &Mutex<ClientHandle>) {
-    let local_sender = client.lock().unwrap().sender.clone();
-    match local_sender.send(InternalMsg::DISCONNECT).await {
+async fn disconnect(error: String, client: &Mutex<ClientHandle>) {
+    let sender = client.lock().unwrap().sender.clone();
+    match sender.send(InternalMsg::DISCONNECT).await {
         Err(e) => event!(Level::WARN, "Cleanup Failed {}", e.to_string()),
-        _ => event!(Level::TRACE, "Cleanup Message sent !")
+        _ => event!(Level::TRACE, "Cleanup Message sent: {}", error)
     }
 }
 
@@ -165,15 +165,15 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
 /////////////////////
 
 async fn handle_chan_status(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelStatus) -> Result<(), Error> {
-    unimplemented!()
+    todo!()
 }
 
 async fn handle_chan_lst(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelList) -> Result<(), Error> {
-    unimplemented!()
+    todo!()
 }
 
 async fn handle_chan_part(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelPart) -> Result<(), Error> {
-    unimplemented!()
+    todo!()
 }
 
 async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelJoin) -> Result<(), Error> {
