@@ -1,20 +1,18 @@
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use bytes::{Buf, BytesMut};
-use quick_protobuf::{BytesReader, MessageWrite, Writer};
+use bytes::BytesMut;
+use prost::Message;
 use tokio::net::UdpSocket;
 use tokio::stream::StreamExt;
 use tokio::sync::mpsc::Receiver;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{event, Instrument, Level, span};
 use uuid::Uuid;
-
 use crate::controlserver::ServerState;
 use crate::protos::hanmessage::StreamHeader;
-use crate::protos::updmessage::{HanUdpMessage, PingPacket};
-use crate::protos::updmessage::mod_HanUdpMessage::OneOfmsg;
-use crate::util::{ByteMutWrite, Error};
+use crate::protos::udpmessage::{HanUdpMessage, PingPacket, han_udp_message::Msg};
+use crate::util::Error;
 
 #[allow(dead_code)]
 pub enum InternalUdpMsg {
@@ -31,13 +29,12 @@ pub async fn udp_client_write(_state: Arc<Mutex<ServerState>>, socket: Arc<UdpSo
             None => { return; }
             Some(InternalUdpMsg::SENDPACKAGE(msg, targets)) => {
                 let mut buf = BytesMut::new();
-                let mut writer = Writer::new(ByteMutWrite { delegate: &mut buf });
-                let size = msg.get_size();
+                let size = msg.encoded_len();
                 StreamHeader {
                     magic: 0x0008a71,
                     length: size as u32,
-                }.write_message(&mut writer).expect("Message serializer broken");
-                msg.write_message(&mut writer).expect("Message serializer broken");
+                }.encode(&mut buf).expect("Message serializer broken");
+                msg.encode(&mut buf).expect("Message serializer broken");
                 for addr in targets {
                     match socket.send_to(buf.as_ref(), addr).await {
                         Err(e) => event!(Level::INFO, "Unable to send to {:?} - {}", &addr, &e),
@@ -51,17 +48,17 @@ pub async fn udp_client_write(_state: Arc<Mutex<ServerState>>, socket: Arc<UdpSo
 }
 
 pub async fn udp_client_read(state: Arc<Mutex<ServerState>>, socket: Arc<UdpSocket>) {
-    let mut buf = vec![0 as u8; 8152];
+    let mut buf = BytesMut::with_capacity(8152);
     loop {
         buf.resize(8152, 0);
-        match socket.recv_from(buf.as_mut_slice()).await {
+        match socket.recv_from(buf.as_mut()).await {
             Err(error) => {
                 event!(Level::ERROR, "Error with UDP socket: {}", &error);
             }
             Ok((size, addr)) => {
                 buf.resize(size, 0);
-                let message: HanUdpMessage = parser_msg(&buf).unwrap();
-                let user_id = Uuid::from_slice(&message.user_id.as_slice()).unwrap();
+                let message: HanUdpMessage = parse_msg(&buf).unwrap();
+                let user_id = Uuid::from_slice(&message.connection_id.as_slice()).unwrap();
                 process_udp_message(&addr, &state, Arc::new(message))
                     .instrument(span!(Level::ERROR, "Connection", "{}", &user_id))
                     .await;
@@ -70,35 +67,27 @@ pub async fn udp_client_read(state: Arc<Mutex<ServerState>>, socket: Arc<UdpSock
     }
 }
 
-
 async fn process_udp_message(addr: &SocketAddr,
                              state_mutex: &Arc<Mutex<ServerState>>,
                              message: Arc<HanUdpMessage>) {
-    let user_id = Uuid::from_slice(message.user_id.as_slice()).unwrap();
+    let user_id = Uuid::from_slice(message.connection_id.as_slice()).unwrap();
     // Each package registers the remote for now...
     match &message.msg {
-        OneOfmsg::audio_frame(_) => handle_audio_frame(state_mutex, &user_id, message).await,
-        OneOfmsg::ping_packet(_) => handle_ping(addr, state_mutex, &user_id).await,
+        Some(Msg::AudioFrame(_)) => handle_audio_frame(state_mutex, &user_id, message).await,
+        Some(Msg::PingPacket(_)) => handle_ping(addr, state_mutex, &user_id).await,
         _ => event!(Level::WARN, "Dropping unknown packet")
     }
 }
 
-fn parser_msg(bytes: &Vec<u8>) -> Result<HanUdpMessage, Error> {
+pub fn parse_msg(bytes: &BytesMut) -> Result<HanUdpMessage, Error> {
     if bytes.len() < 10 {
         return Err(Error::ProtocolError("Udp Packet to small for Header.".to_string()));
     }
-    let mut reader = BytesReader::from_bytes(bytes);
-    let header = match reader.read_message_by_len::<StreamHeader>(bytes, 10) {
-        Err(e) => return Err(Error::ProtoBufError(e)),
-        Ok(val) => val
-    };
+    let header = StreamHeader::decode(&bytes.as_ref()[0..10])?;
     if header.magic != 0x0008a71 || header.length as usize != bytes.len() - 10 {
         return Err(Error::ProtocolError("MAGIC is gone !".to_string()));
     }
-    match reader.read_message_by_len::<HanUdpMessage>(bytes, header.length as usize) {
-        Err(e) => Err(Error::ProtoBufError(e)),
-        Ok(val) => Ok(val)
-    }
+    Ok(HanUdpMessage::decode(&bytes.as_ref()[10..])?)
 }
 
 /// Message Handler
@@ -118,8 +107,8 @@ async fn handle_ping(addr: &SocketAddr, state_mutex: &Arc<Mutex<ServerState>>, u
             event!(Level::WARN, "Ping reply.");
             if let Err(e) =
             sender.send(InternalUdpMsg::SENDPACKAGE(Arc::new(HanUdpMessage {
-                user_id: Vec::from(&user_id.as_bytes()[..]),
-                msg: OneOfmsg::ping_packet(PingPacket {}),
+                connection_id: Vec::from(&user_id.as_bytes()[..]),
+                msg: Some(Msg::PingPacket(PingPacket {})),
             }), vec![addr])).await {
                 event!(Level::ERROR, "Internal send Failed: {}", e);
             }
@@ -172,29 +161,23 @@ impl Decoder for UdpMessageParser {
         src: &mut BytesMut,
     ) -> Result<Option<HanUdpMessage>, Self::Error> {
         let length = src.len();
-        let mut reader = BytesReader::from_bytes(src.bytes());
-        let result = reader.read_message_by_len::<StreamHeader>(src.bytes(), 10).unwrap();
+        let result = StreamHeader::decode(&src.as_ref()[0..10])?;
         if result.magic != 0x0008a71 || result.length as usize != length - 10 {
             return Err(Error::ProtocolError("Header Missing".to_string()));
         }
-        let result = reader.read_message_by_len(src.bytes(), result.length as usize);
-        match result {
-            Ok(msg) => Ok(Some(msg)),
-            Err(e) => Err(Error::from(e))
-        }
+        Ok(Some(HanUdpMessage::decode(&src.as_ref()[10..result.length as usize])?))
     }
 }
 
 impl Encoder<HanUdpMessage> for UdpMessageParser {
-    type Error = quick_protobuf::Error;
+    type Error = Error;
 
-    fn encode(&mut self, message: HanUdpMessage, dst: &mut BytesMut) -> Result<(), quick_protobuf::Error> {
-        let mut writer = Writer::new(ByteMutWrite { delegate: dst });
+    fn encode(&mut self, message: HanUdpMessage, dst: &mut BytesMut) -> Result<(), Error> {
         StreamHeader {
             magic: 0x0008a71,
-            length: message.get_size() as u32,
-        }.write_message(&mut writer).expect("Encoding FAIL !");
-        message.write_message(&mut writer)
+            length: message.encoded_len() as u32,
+        }.encode(dst).expect("Encoding FAIL !");
+        message.encode(dst).expect("Encoder broken");
+        Ok(())
     }
 }
-

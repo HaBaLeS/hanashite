@@ -7,7 +7,6 @@ edition = "2018"
 [dependencies]
 bytes = "0.6.0"
 futures = "0.3.8"
-quick-protobuf = "0.8.0"
 serde = "1.0.117"
 toml = "0.5.7"
 tracing = "0.1"
@@ -16,13 +15,10 @@ tracing-futures = "0.2.4"
 tokio = { version = "0.3", features = [ "full", "io-util" ] }
 tokio-util = { version = "0.5.0", features = [ "codec" ] }
 uuid = { version = "0.8.1", features = [ "v4" ] }
-
+prost = { git = "https://github.com/danburkert/prost" }
 
 [dev-dependencies]
-audiopus = "0.2.0"
-hound = "3.4.0"
-sodiumoxide = "0.2.6"
 
 [build-dependencies]
-pb-rs = "0.9.1"
 walkdir = "2.3.1"
+prost-build = "0.6.1"

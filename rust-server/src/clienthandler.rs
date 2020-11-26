@@ -3,8 +3,9 @@ use futures::SinkExt;
 use crate::clienthandler::ClientState::{LOGGEDIN};
 use crate::controlserver::ServerState;
 use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult};
-use crate::protos::hanmessage::mod_HanMessage::OneOfmsg;
-use crate::util::{ByteMutWrite,Error};
+use crate::protos::hanmessage::han_message::Msg;
+use crate::util::Error;
+use prost::Message;
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream};
@@ -14,13 +15,12 @@ use tokio::sync::mpsc::{Sender, channel, Receiver};
 use tokio_util::codec::{FramedWrite, FramedRead};
 use tokio_util::codec::{Encoder, Decoder};
 use tracing::{event, Level};
-use quick_protobuf::{BytesReader, Writer, MessageWrite};
 use uuid::Uuid;
 
 #[allow(dead_code)]
 pub enum InternalMsg {
     DISCONNECT,
-    SENDCTRL(HanMessage),
+    SENDCTRL(Box<HanMessage>),
 }
 
 #[derive(Debug)]
@@ -83,7 +83,7 @@ async fn client_reader(read: ReadHalf<'_>, shutdown_receiver: Receiver<()>, clie
         match select {
             Some(Ok(result)) => {
                 event!(Level::TRACE, "Message received");
-                process_message(&client, result).await
+                process_message(&client, &result).await
             }
             Some(Err(e)) => {
                 event!(Level::TRACE, "Error {}", e.to_string());
@@ -125,7 +125,7 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
     event!(Level::INFO, "Writer closed");
 }
 
-async fn process_message(client: &Mutex<ClientHandle>, data: HanMessage) {
+async fn process_message(client: &Mutex<ClientHandle>, data: &HanMessage) {
     event!(Level::INFO, "Nessage: {:?}", &data);
     match multiplex(client, &data).await {
         Err(e) => {
@@ -150,12 +150,11 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
         Ok(id) => id
     };
     match &data.msg {
-        OneOfmsg::auth(msg) => handle_auth(client, &uuid, &msg).await,
-        OneOfmsg::chan_join(msg) => handle_chan_join(client, &uuid, &msg).await,
-        OneOfmsg::chan_part(msg) => handle_chan_part(client, &uuid, &msg).await,
-        OneOfmsg::chan_lst(msg) => handle_chan_lst(client, &uuid, &msg).await,
-        OneOfmsg::chan_status(msg) => handle_chan_status(client, &uuid, &msg).await,
-        OneOfmsg::auth_result(_) => handle_illegal_msg(client, &uuid, "auth_result").await,
+        Some(Msg::Auth(msg)) => handle_auth(client, &uuid, &msg).await,
+        Some(Msg::ChanJoin(msg)) => handle_chan_join(client, &uuid, &msg).await,
+        Some(Msg::ChanPart(msg)) => handle_chan_part(client, &uuid, &msg).await,
+        Some(Msg::ChanLst(msg)) => handle_chan_lst(client, &uuid, &msg).await,
+        Some(Msg::ChanStatus(msg)) => handle_chan_status(client, &uuid, &msg).await,
         _ => handle_illegal_msg(client, &uuid, "unknown_message").await
     }
 }
@@ -177,7 +176,7 @@ async fn handle_chan_part(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &Ch
 }
 
 async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelJoin) -> Result<(), Error> {
-    let (sender, message) =  || -> Result<(Sender<InternalMsg>, ChannelJoinResult), Error>{
+    let (sender, message) = || -> Result<(Sender<InternalMsg>, ChannelJoinResult), Error>{
         let state = client.lock().unwrap();
         if let ClientState::CONNECTED = state.client_state {
             return Err(Error::ProtocolError("Not Logged in".to_string()));
@@ -200,10 +199,10 @@ async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Chann
             channel_id: vec![],
         }));
     }()?;
-    match sender.send(InternalMsg::SENDCTRL(HanMessage {
+    match sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
         message_id: Vec::from(&uuid.as_bytes()[..]),
-        msg: OneOfmsg::chan_join_result(message),
-    })).await {
+        msg: Some(Msg::ChanJoinResult(message)),
+    }))).await {
         Err(e) => return Err(Error::ProtocolError(e.to_string())),
         _ => return Ok(())
     }
@@ -220,15 +219,15 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
         event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
         (state.sender.clone(), state.uuid)
     };
-    match sender.send(InternalMsg::SENDCTRL(HanMessage {
+    match sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
         message_id: Vec::from(&uuid.as_bytes()[..]),
-        msg: OneOfmsg::auth_result(
+        msg: Some(Msg::AuthResult(
             AuthResult {
                 success: true,
                 connection_id: Vec::from(&state_uuid.as_bytes()[..]),
             }
-        ),
-    })).await {
+        )),
+    }))).await {
         Err(e) => Err(Error::ProtocolError(e.to_string())),
         _ => Ok(())
     }
@@ -242,71 +241,53 @@ async fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _messag
 const HEADER_LENGTH: usize = 10;
 
 impl MessageParser {
-    fn read_header(src: &mut BytesMut) -> Result<usize, Error> {
-        let mut reader = BytesReader::from_bytes(src.bytes());
-        let header: StreamHeader = match reader.read_message_by_len(src.bytes(), HEADER_LENGTH) {
-            Err(e) => return Err(Error::from(e)),
-            Ok(val) => val
-        };
-        if header.magic != 0x0008a71 {
-            return Err(Error::ProtocolError("MAGIC is gone !".to_string()));
-        }
-        return Ok(header.length as usize);
-    }
+
 }
 
 
 impl Decoder for MessageParser {
-    type Item = HanMessage;
+    type Item = Box<HanMessage>;
     type Error = Error;
 
     fn decode(
         &mut self,
         src: &mut BytesMut,
-    ) -> Result<Option<HanMessage>, Self::Error> {
+    ) -> Result<Option<Box<HanMessage>>, Self::Error> {
         //  skip magic bytes
         if src.len() < HEADER_LENGTH {
             return Ok(None);
         }
-        let size = match MessageParser::read_header(src) {
-            Ok(val) => val,
-            Err(e) => return Err(e)
-        };
-        if src.len() < size + HEADER_LENGTH {
+        let header = StreamHeader::decode(&src[0..HEADER_LENGTH])?;
+        if header.magic != 0x0008a71 {
+            return Err(Error::ProtocolError("MAGIC is gone !".to_string()));
+        }
+        if src.len() < header.length as usize + HEADER_LENGTH {
             return Ok(None);
         }
         src.advance(HEADER_LENGTH);
-        let mut reader = BytesReader::from_bytes(src.bytes());
-        let result = reader.read_message_by_len(src.bytes(), size);
-        src.advance(size);
-        match result {
-            Ok(msg) => Ok(Some(msg)),
-            Err(e) => Err(Error::from(e))
-        }
+        let msg = HanMessage::decode(src)?;
+        Ok(Some(Box::new(msg)))
     }
 }
 
-impl Encoder<HanMessage> for MessageParser {
-    type Error = quick_protobuf::Error;
+impl Encoder<Box<HanMessage>> for MessageParser {
+    type Error = Error;
 
-    fn encode(&mut self, message: HanMessage, dst: &mut BytesMut) -> Result<(), quick_protobuf::Error> {
-        let mut writer = Writer::new(ByteMutWrite { delegate: dst });
-        match (StreamHeader {
+    fn encode(&mut self, message: Box<HanMessage>, dst: &mut BytesMut) -> Result<(), Error> {
+        (StreamHeader {
             magic: 0x00008A71,
-            length: message.get_size() as u32,
-        }).write_message(&mut writer) {
-            Err(e) => return Err(e),
-            _ => ()
-        }
-        message.write_message(&mut writer)
+            length: message.encoded_len() as u32,
+        }).encode(dst).expect("Message encoder broken");
+        message.encode(dst).expect("Message encoder broken");
+        Ok(())
     }
 }
 
 
 #[cfg(test)]
 mod tests {
-    use quick_protobuf::{Writer, MessageWrite};
     use crate::protos::hanmessage::StreamHeader;
+    use prost::Message;
 
     #[test]
     fn testheader() {
@@ -314,14 +295,6 @@ mod tests {
             magic: 0x00008A71,
             length: 12345,
         };
-        println!("Header size: {}", header.get_size());
-    }
-
-    #[test]
-    fn testencode() {
-        let mut r = Vec::new();
-        let mut writer = Writer::new(&mut r);
-        writer.write_fixed32(0x00008A71).unwrap();
-        println!("Length: {}", r.len());
+        println!("Header size: {}", header.encoded_len());
     }
 }

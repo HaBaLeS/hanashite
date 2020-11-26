@@ -1,10 +1,13 @@
 syntax="proto3";
 
+package udpmessage;
+option go_package = ".;serialize";
+
 /**
  * Udp Message Envelope
  */
 message HanUdpMessage {
-  bytes user_id = 111;
+  bytes connection_id = 111;
   oneof msg  {
     AudioPacket audio_frame = 100;
     PingPacket ping_packet = 101;

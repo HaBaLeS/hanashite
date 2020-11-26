@@ -9,19 +9,18 @@ use tokio::stream::StreamExt;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio::time::sleep;
-use tokio_util::codec::{Decoder, Encoder, Framed};
+use tokio_util::codec::{Encoder, Framed};
 use uuid::Uuid;
 
 use rust_hanashite::clienthandler::MessageParser;
 use rust_hanashite::protos::hanmessage::*;
-use rust_hanashite::protos::hanmessage::mod_HanMessage::OneOfmsg;
-use rust_hanashite::protos::updmessage::*;
+use rust_hanashite::protos::hanmessage::han_message::Msg;
+use rust_hanashite::protos::udpmessage::*;
 use rust_hanashite::udphandler::UdpMessageParser;
 
 #[tokio::main]
 async fn main() {
     let mut handles: Vec<JoinHandle<()>> = Vec::new();
-
     tokio::spawn(listener());
     sleep(Duration::from_secs(1)).await;
     for port in 9879..9980 {
@@ -36,14 +35,14 @@ async fn listener() {
     let stream = TcpStream::connect("127.0.0.1:9876").await.unwrap();
     let mut codec = UdpMessageParser {};
     let mut framed = Framed::new(stream, MessageParser {});
-    framed.send(HanMessage {
+    framed.send(Box::new(HanMessage {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
-        msg: OneOfmsg::auth(Auth {
+        msg: Some(Msg::Auth(Auth {
             username: "testme".to_string()
-        }),
-    }).await.expect("Send Failed");
+        })) ,
+    })).await.expect("Send Failed");
     let connection_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
-        if let OneOfmsg::auth_result(result) = msg.msg {
+        if let Some(Msg::AuthResult(result)) = msg.msg {
             Uuid::from_slice(result.connection_id.as_slice()).unwrap()
         } else {
             return;
@@ -51,15 +50,15 @@ async fn listener() {
     } else {
         return;
     };
-    framed.send(HanMessage {
+    framed.send(Box::new(HanMessage {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
-        msg: OneOfmsg::chan_join(ChannelJoin {
+        msg: Some(Msg::ChanJoin(ChannelJoin {
             name: "testchannel".to_string(),
             channel_id: vec![0, 0],
-        }),
-    }).await.expect("Send Failed");
-    let channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
-        if let OneOfmsg::chan_join_result(result) = msg.msg {
+        })),
+    })).await.expect("Send Failed");
+    let _channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
+        if let Some(Msg::ChanJoinResult(result)) = msg.msg {
             Uuid::from_slice(result.channel_id.as_slice()).unwrap()
         } else {
             return;
@@ -69,20 +68,26 @@ async fn listener() {
     };
     let mut buf = BytesMut::new();
     let udp_message = HanUdpMessage {
-        user_id: Vec::from(&connection_id.as_bytes()[..]),
-        msg: mod_HanUdpMessage::OneOfmsg::ping_packet(PingPacket {}),
+        connection_id: Vec::from(&connection_id.as_bytes()[..]),
+        msg: Some(han_udp_message::Msg::PingPacket(PingPacket {})),
     };
     codec.encode(udp_message, &mut buf).expect("Encoder broken");
     udp_socket.send(buf.bytes()).await.expect("Udp Failed");
-    let mut buf: Vec<u8> = vec![0 as u8; 8152];
+    let mut buf = BytesMut::with_capacity(8152);
     loop {
         buf.resize(8152, 0);
-        let result1 = tokio::select! {
-            cnt = udp_socket.recv(buf.as_mut_slice()) => cnt.unwrap(),
+        match tokio::select! {
+            res = udp_socket.recv_from(buf.as_mut()) => res,
             _ = sleep(Duration::from_secs(5)) => return
+            } {
+            Err(error) => {
+                println!("Error with UDP socket: {}", &error);
+            }
+            Ok((size, _addr)) => {
+                buf.resize(size, 0);
+                println!("{:?}",rust_hanashite::udphandler::parse_msg(&buf).unwrap());
+            }
         };
-        buf.resize(result1, 0);
-        println!("{:?}", codec.decode(&mut BytesMut::from(buf.as_slice())));
     }
 }
 
@@ -94,15 +99,15 @@ async fn connection(port: u16) {
     let mut codec = UdpMessageParser {};
     let mut framed = Framed::new(stream, MessageParser {});
     sleep(Duration::from_secs(1)).await;
-    framed.send(HanMessage {
+    framed.send(Box::new(HanMessage {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
-        msg: OneOfmsg::auth(Auth {
+        msg: Some(Msg::Auth(Auth {
             username: "testme".to_string()
-        }),
-    }).await.expect("Send Failed");
+        })),
+    })).await.expect("Send Failed");
     let connection_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
         println!("Received {:?}", msg);
-        if let OneOfmsg::auth_result(result) = msg.msg {
+        if let Some(Msg::AuthResult(result)) = msg.msg {
             Uuid::from_slice(result.connection_id.as_slice()).unwrap()
         } else {
             return;
@@ -110,16 +115,16 @@ async fn connection(port: u16) {
     } else {
         return;
     };
-    framed.send(HanMessage {
+    framed.send(Box::new(HanMessage {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
-        msg: OneOfmsg::chan_join(ChannelJoin {
+        msg: Some(Msg::ChanJoin(ChannelJoin {
             name: "testchannel".to_string(),
             channel_id: vec![0, 0],
-        }),
-    }).await.expect("Send Failed");
+        })),
+    })).await.expect("Send Failed");
     let channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
         println!("Received {:?}", msg);
-        if let OneOfmsg::chan_join_result(result) = msg.msg {
+        if let Some(Msg::ChanJoinResult(result)) = msg.msg {
             Uuid::from_slice(result.channel_id.as_slice()).unwrap()
         } else {
             return;
@@ -129,22 +134,24 @@ async fn connection(port: u16) {
     };
     let mut buf = BytesMut::new();
     let udp_message = HanUdpMessage {
-        user_id: Vec::from(&connection_id.as_bytes()[..]),
-        msg: mod_HanUdpMessage::OneOfmsg::ping_packet(PingPacket {}),
+        connection_id: Vec::from(&connection_id.as_bytes()[..]),
+        msg: Some(han_udp_message::Msg::PingPacket(PingPacket {})),
     };
     codec.encode(udp_message, &mut buf).expect("Encoder broken");
     udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+    println!("Send UDP");
     for i in 1..20 {
         let mut buf = BytesMut::new();
         codec.encode(HanUdpMessage {
-            user_id: Vec::from(&connection_id.as_bytes()[..]),
-            msg: mod_HanUdpMessage::OneOfmsg::audio_frame(AudioPacket {
+            connection_id: Vec::from(&connection_id.as_bytes()[..]),
+            msg: Some(han_udp_message::Msg::AudioFrame(AudioPacket {
                 channel_id: Vec::from(&channel_id.as_bytes()[..]),
                 data: vec![1, 2, 3],
                 sequence_id: i,
-            }),
+            })),
         }, &mut buf).expect("Encoder broken");
         udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+        println!("Send UDP");
     }
     sleep(Duration::from_secs(10)).await;
 }

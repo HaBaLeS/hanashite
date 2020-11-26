@@ -1,11 +1,11 @@
-use pb_rs::{types::FileDescriptor, ConfigBuilder};
+extern crate prost_build;
+
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 fn main() {
-    // let out_dir = std::env::var("OUT_DIR").unwrap();
-    // let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_dir = Path::new("src/protos").to_path_buf();
+
     println!("OUTPUT: {}", out_dir.to_str().expect("fail"));
     let in_dir = PathBuf::from(::std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("protos");
     // Re-run this build.rs if the protos dir changes (i.e. a new file is added)
@@ -22,13 +22,8 @@ fn main() {
             protos.push(path);
         }
     }
-
-    // Delete all old generated files before re-generating new ones
-    if out_dir.exists() {
-        std::fs::remove_dir_all(&out_dir).unwrap();
-    }
-    std::fs::DirBuilder::new().create(&out_dir).unwrap();
-    let config_builder = ConfigBuilder::new(&protos, None, Some(&out_dir), &[in_dir])
-        .expect("Fuck").dont_use_cow(true);
-    FileDescriptor::run(&config_builder.build()).unwrap()
+    let mut prost_build = prost_build::Config::new();
+    prost_build.out_dir(out_dir);
+    prost_build.type_attribute(".", "#[derive(Eq)]");
+    prost_build.compile_protos(&protos,    &[in_dir]).unwrap();
 }

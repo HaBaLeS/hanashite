@@ -1,5 +1,7 @@
 syntax="proto3";
 
+package hanmessage;
+option go_package = ".;serialize";
 
 /**
  * Envelope to enable easy parsing of multiple types of messages
