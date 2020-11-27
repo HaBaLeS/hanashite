@@ -7,18 +7,16 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net"
-	"strings"
-	"time"
-
 	ui "github.com/gizak/termui/v3"
 	"github.com/gizak/termui/v3/widgets"
+	"github.com/habales/hanashite/go/network"
+	"log"
+	"strings"
 )
 
 type UI struct {
 	history *widgets.Paragraph
-	connection net.Conn
+	session *network.Session
 	user string
 }
 
@@ -49,7 +47,7 @@ func main() {
 	u.history.SetRect(7,0,80,21)
 	u.history.BorderStyle.Fg = ui.ColorMagenta
 
-	ui.Render( p2, u.history)
+
 
 
 
@@ -65,8 +63,8 @@ func main() {
 	bc.MaxVal = 100
 
 
-	ui.Render(bc)
 
+	ui.Render( bc, p2, u.history)
 
 
 
@@ -75,8 +73,8 @@ func main() {
 		e := <-uiEvents
 		switch e.ID {
 		case "<C-c>":
-			if u.connection != nil {
-				u.connection.Close()
+			if u.session != nil {
+				u.session.Close()
 			}
 
 			return
@@ -101,7 +99,9 @@ func main() {
 			}
 
 		}
-		ui.Render( p2, u.history)
+
+		ui.Render( bc, p2, u.history)
+
 	}
 }
 
@@ -122,14 +122,18 @@ func (u *UI)processCommand(cmd string) {
 
 func  (u *UI)connectToServer(arg string) {
 	arg = strings.TrimSpace(arg)
-	conn ,err  := net.DialTimeout("tcp", arg, time.Second *5)
+	session, err := network.NewSession(arg)
 	if err != nil {
 		u.writeToHistory(fmt.Sprintf("<<<%s", err), "yellow")
 		return
 	}
+	u.session = session
+	err = u.session.Connect(u.user)
 	u.writeToHistory("<<< Connected to " + arg, "green")
-	//defer conn.Close()
-	u.connection = conn
+	if err != nil {
+		u.writeToHistory(fmt.Sprintf("<<<%s", err), "yellow")
+		return
+	}
 }
 
 func (u *UI)writeToHistory(log, color string) {

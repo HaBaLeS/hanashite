@@ -4,6 +4,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/habales/hanashite/go/serialize"
 	"net"
+	"time"
 )
 
 type Session struct {
@@ -16,8 +17,15 @@ type Session struct {
 
 
 
-func NewSession(server string) *Session{
-	return &Session{}
+func NewSession(server string) (*Session, error){
+	session :=  &Session{}
+	conn, err  :=net.DialTimeout("tcp", server, time.Second *5)
+	if err != nil {
+		return nil, err
+	}
+	session.conn= conn
+	go session.handleIncomming()
+	return session, nil
 }
 
 func (s *Session) Connect(user string) error{
@@ -57,4 +65,25 @@ func (s *Session) send(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Session) Close() {
+	s.conn.Close()
+}
+
+func (s *Session) handleIncomming() {
+	/*buf := make([]byte, 4096)
+	for {
+		n, err := s.conn.Read(buf)
+		if err != nil {
+			s.callback(err)
+		}
+		read := buf[:n]
+
+
+	}*/
+}
+
+func (s *Session) callback(err error) {
+
 }
