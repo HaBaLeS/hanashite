@@ -22,11 +22,11 @@ func startServer(args []string, options map[string]string) int {
 
 	l, err := net.Listen("tcp", args[0])
 	panicIfError(err)
-	a, e := net.ResolveUDPAddr("udp","0.0.0.0:9876")
+	a, e := net.ResolveUDPAddr("udp", "0.0.0.0:9876")
 	if e != nil {
 		panic(e)
 	}
-	uc, ex := net.ListenUDP("udp",  a)
+	uc, ex := net.ListenUDP("udp", a)
 	if ex != nil {
 		panic(ex)
 	}
@@ -47,7 +47,6 @@ func handleUDP(uc *net.UDPConn) {
 		panicIfError(err)
 		sh := &serialize.StreamHeader{}
 		ap := &serialize.HanUdpMessage{}
-
 
 		//get stream header
 		err = proto.Unmarshal(buf[:10], sh)
@@ -88,7 +87,7 @@ func handleIncoming(conn net.Conn) {
 		panicIfError(err)
 		err = proto.Unmarshal(buf[10:10+sh.GetLength()], msg)
 		panicIfError(err)
-		uuidd, err := uuid.FromBytes(msg.GetUuid())
+		uuidd, err := uuid.FromBytes(msg.GetMessageId())
 		panicIfError(err)
 		fmt.Printf("%s: %s\n ", uuidd.String(), string(msg.GetAuth().Username))
 

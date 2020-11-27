@@ -10,7 +10,7 @@ ARCH := amd64
 
 build: vet lint
 	go build  -ldflags "$(LDFLAGS)" -o hanashite-cli cmd/go-hanashite-cli/main.go
-	#go build  -ldflags "$(LDFLAGS)" -o dbg-hanashite-client cmd/dbg-hanashite-client/main.go
+#go build  -ldflags "$(LDFLAGS)" -o dbg-hanashite-client cmd/dbg-hanashite-client/main.go
 	go build  -ldflags "$(LDFLAGS)" -o hanashite-server cmd/go-hanashite-server/main.go
 
 #Cross compile wth CGO enabled requires to set up compilers and SDK's ... will do that later in a VM or container

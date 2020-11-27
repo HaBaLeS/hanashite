@@ -50,12 +50,12 @@ func (u *UDPProcessor) IncomingFrameProcessor() FrameProcessor {
 
 func (u *UDPProcessor) processOutgoing(frame *AudioFrame) {
 	data := serialize.HanUdpMessage{
-		UserId: u.userID,
+		ConnectionId: u.userID,
 		Msg: &serialize.HanUdpMessage_AudioFrame{
 			AudioFrame: &serialize.AudioPacket{
-				ChannelId:   u.channelID,
-				SequernceId: frame.FrameNum,
-				Data:        frame.Encoded[:frame.EncBytes],
+				ChannelId:  u.channelID,
+				SequenceId: frame.FrameNum,
+				Data:       frame.Encoded[:frame.EncBytes],
 			},
 		},
 	}
@@ -95,7 +95,7 @@ func (u *UDPProcessor) processIncomming(frame *AudioFrame) {
 
 	audioFrame := ap.GetAudioFrame()
 	frame.Encoded = audioFrame.Data
-	frame.FrameNum = audioFrame.SequernceId
+	frame.FrameNum = audioFrame.SequenceId
 
 	fmt.Printf("%d\tReceived: %d bytes in a packet\n", frame.FrameNum, n)
 }
