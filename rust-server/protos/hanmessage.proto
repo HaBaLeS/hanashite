@@ -1,4 +1,4 @@
-syntax="proto3";
+syntax = "proto3";
 
 package hanmessage;
 option go_package = ".;serialize";
@@ -12,29 +12,31 @@ message StreamHeader {
 }
 
 message HanMessage {
-  bytes message_id = 10;
+  bytes message_id = 1;
   oneof msg {
-    Auth auth = 11;
-    AuthResult auth_result = 12;
-    ChannelList chan_lst = 13;
-    ChannelListResult chan_lst_result = 14;
-    ChannelJoin chan_join = 15;
-    ChannelJoinResult chan_join_result = 16;
-    ChannelPart chan_part = 17;
-    ChannelPartResult  chan_part_result = 18;
-    ChannelStatus chan_status = 19;
-    ChannelStatusResult chan_status_result = 20;
+    Auth auth = 2;
+    AuthResult auth_result = 3;
+    ChannelList chan_lst = 4;
+    ChannelListResult chan_lst_result = 5;
+    ChannelJoin chan_join = 6;
+    ChannelJoinResult chan_join_result = 7;
+    ChannelPart chan_part = 8;
+    ChannelPartResult  chan_part_result = 9;
+    ChannelStatus chan_status = 10;
+    ChannelStatusResult chan_status_result = 11;
+    Status status = 12;
+    StatusResult status_result = 13;
   }
 }
 
 
 message Auth {
-  string username = 20;
+  string username = 1;
 }
 
 message AuthResult {
-  bool success = 30;
-  bytes connection_id = 31;
+  bool success = 1;
+  bytes connection_id = 2;
 }
 
 
@@ -43,22 +45,21 @@ message ChannelList {
 }
 
 message ChannelListentry {
-  string name = 40;
-  bytes id = 41;
+  string name = 1;
+  bytes channel_id = 2;
 }
 
 message ChannelListResult {
-  repeated ChannelListentry channel = 45;
+  repeated ChannelListentry channel = 1;
 }
 
 message ChannelJoin {
-  string name = 50;
-  bytes channel_id = 51;
+  string name = 1;
 }
 
 message ChannelJoinResult {
-  bool success = 60;
-  bytes channel_id = 61;
+  bool success = 1;
+  bytes channel_id = 2;
 
 }
 
@@ -67,13 +68,31 @@ message ChannelPart {
 }
 
 message ChannelPartResult {
-  bool success = 80;
+  bool success = 1;
 }
 
 message ChannelStatus {
-  bytes channel_id = 90;
+  string name = 1;
+}
+
+message UserEntry {
+  string name = 1;
+  bytes user_id = 2;
 }
 
 message ChannelStatusResult {
-  // TODO
+  string name = 2;
+  bytes channel_id = 3;
+  repeated UserEntry user = 1;
+}
+
+message Status {
+  // Nil
+}
+
+
+message StatusResult {
+  bytes connection_id = 1;
+  string channel = 2;
+  string name = 3;
 }

@@ -54,7 +54,6 @@ async fn listener() {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
         msg: Some(Msg::ChanJoin(ChannelJoin {
             name: "testchannel".to_string(),
-            channel_id: vec![0, 0],
         })),
     })).await.expect("Send Failed");
     let _channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {
@@ -119,7 +118,6 @@ async fn connection(port: u16) {
         message_id: Vec::from(&Uuid::new_v4().as_bytes()[..]),
         msg: Some(Msg::ChanJoin(ChannelJoin {
             name: "testchannel".to_string(),
-            channel_id: vec![0, 0],
         })),
     })).await.expect("Send Failed");
     let channel_id: Uuid = if let Some(Ok(msg)) = framed.next().await {

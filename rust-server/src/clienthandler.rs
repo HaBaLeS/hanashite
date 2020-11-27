@@ -2,7 +2,7 @@ use bytes::{BytesMut, Buf};
 use futures::SinkExt;
 use crate::clienthandler::ClientState::{LOGGEDIN};
 use crate::controlserver::ServerState;
-use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult};
+use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult, ChannelListResult, ChannelListentry, Status, StatusResult, UserEntry, ChannelStatusResult};
 use crate::protos::hanmessage::han_message::Msg;
 use crate::util::Error;
 use prost::Message;
@@ -151,11 +151,18 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
     };
     match &data.msg {
         Some(Msg::Auth(msg)) => handle_auth(client, &uuid, &msg).await,
+        Some(Msg::AuthResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message AuthResult").await,
         Some(Msg::ChanJoin(msg)) => handle_chan_join(client, &uuid, &msg).await,
+        Some(Msg::ChanJoinResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanJoinResult").await,
         Some(Msg::ChanPart(msg)) => handle_chan_part(client, &uuid, &msg).await,
+        Some(Msg::ChanPartResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanPartResult").await,
         Some(Msg::ChanLst(msg)) => handle_chan_lst(client, &uuid, &msg).await,
+        Some(Msg::ChanLstResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanLstResult").await,
         Some(Msg::ChanStatus(msg)) => handle_chan_status(client, &uuid, &msg).await,
-        _ => handle_illegal_msg(client, &uuid, "unknown_message").await
+        Some(Msg::ChanStatusResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanStatusResult").await,
+        Some(Msg::Status(msg)) => handle_status(client, &uuid, &msg).await,
+        Some(Msg::StatusResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message StatusResult").await,
+        None => handle_illegal_msg(client, &uuid, "Empty message").await
     }
 }
 
@@ -163,16 +170,93 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
 // Message Handler //
 /////////////////////
 
-async fn handle_chan_status(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelStatus) -> Result<(), Error> {
-    todo!()
+
+async fn handle_status(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &Status) -> Result<(), Error> {
+    let (result, sender) = {
+        let client = client.lock().unwrap();
+        let server = client.server.lock().unwrap();
+        let chan = server.channels.values().filter(|x| x.users.contains(&client.uuid))
+            .map(|x| x.name.clone())
+            .nth(0);
+        (Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::StatusResult(StatusResult {
+                name: client.username.clone(),
+                connection_id: Vec::from(&client.uuid.as_bytes()[..]),
+                channel: chan.unwrap_or("".to_string()),
+            })),
+        }), client.sender.clone())
+    };
+    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    Ok(())
 }
 
-async fn handle_chan_lst(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelList) -> Result<(), Error> {
-    todo!()
+async fn handle_chan_status(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelStatus) -> Result<(), Error> {
+    let (result, sender) = {
+        let client = client.lock().unwrap();
+        let server = client.server.lock().unwrap();
+        let client_id = &client.uuid;
+        fn create_user(client_id: &Uuid, id: &Uuid, handle: &Arc<Mutex<ClientHandle>>) -> Option<UserEntry> {
+            if client_id == id {
+                return None;
+            }
+            let handle = handle.lock().unwrap();
+            Some(UserEntry {
+                name: handle.username.clone(),
+                user_id: Vec::from(&handle.uuid.as_bytes()[..]),
+            })
+        }
+        let channel = server.channels.iter().filter(|(_, x)| &x.name == &msg.name).nth(0);
+        if let Some((channel_id, channel)) = channel {
+            let chan: Vec<UserEntry> = channel.users.iter()
+                .map(|x|
+                    server.clients.get(x).map(|y| create_user(&client_id, x, y)
+                    ).unwrap_or(None))
+                .filter(|x| x.is_some())
+                .map(|x| x.unwrap())
+                .collect();
+            (Box::new(HanMessage {
+                message_id: Vec::from(&uuid.as_bytes()[..]),
+                msg: Some(Msg::ChanStatusResult(ChannelStatusResult {
+                    user: chan,
+                    name: channel.name.clone(),
+                    channel_id: Vec::from(&channel_id.as_bytes()[..]),
+                })),
+            }), client.sender.clone())
+        } else {
+            (Box::new(HanMessage {
+                message_id: Vec::from(&uuid.as_bytes()[..]),
+                msg: Some(Msg::ChanStatusResult(ChannelStatusResult {
+                    user: vec![],
+                    name: "".to_string(),
+                    channel_id: vec![],
+                })),
+            }), client.sender.clone())
+        }
+    };
+    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    Ok(())
 }
 
 async fn handle_chan_part(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelPart) -> Result<(), Error> {
     todo!()
+}
+
+async fn handle_chan_lst(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &ChannelList) -> Result<(), Error> {
+    let (result, sender) = {
+        let client = client.lock().unwrap();
+        let server = client.server.lock().unwrap();
+        (Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::ChanLstResult(ChannelListResult {
+                channel: server.channels.iter()
+                    .map(|c| ChannelListentry { channel_id: Vec::from(&c.0.as_bytes()[..]), name: c.1.name.clone() })
+                    .collect()
+            })),
+        }), client.sender.clone())
+    };
+    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    Ok(())
 }
 
 async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelJoin) -> Result<(), Error> {
@@ -199,13 +283,11 @@ async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Chann
             channel_id: vec![],
         }));
     }()?;
-    match sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
+    sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
         message_id: Vec::from(&uuid.as_bytes()[..]),
         msg: Some(Msg::ChanJoinResult(message)),
-    }))).await {
-        Err(e) => return Err(Error::ProtocolError(e.to_string())),
-        _ => return Ok(())
-    }
+    }))).await?;
+    Ok(())
 }
 
 async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
@@ -219,7 +301,7 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
         event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
         (state.sender.clone(), state.uuid)
     };
-    match sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
+    sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
         message_id: Vec::from(&uuid.as_bytes()[..]),
         msg: Some(Msg::AuthResult(
             AuthResult {
@@ -227,10 +309,8 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
                 connection_id: Vec::from(&state_uuid.as_bytes()[..]),
             }
         )),
-    }))).await {
-        Err(e) => Err(Error::ProtocolError(e.to_string())),
-        _ => Ok(())
-    }
+    }))).await?;
+    Ok(())
 }
 
 async fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
@@ -240,9 +320,7 @@ async fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _messag
 
 const HEADER_LENGTH: usize = 10;
 
-impl MessageParser {
-
-}
+impl MessageParser {}
 
 
 impl Decoder for MessageParser {

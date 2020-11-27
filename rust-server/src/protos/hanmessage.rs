@@ -11,49 +11,53 @@ pub struct StreamHeader {
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct HanMessage {
-    #[prost(bytes, tag="10")]
+    #[prost(bytes, tag="1")]
     pub message_id: std::vec::Vec<u8>,
-    #[prost(oneof="han_message::Msg", tags="11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
+    #[prost(oneof="han_message::Msg", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13")]
     pub msg: ::std::option::Option<han_message::Msg>,
 }
 pub mod han_message {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     #[derive(Eq)]
     pub enum Msg {
-        #[prost(message, tag="11")]
+        #[prost(message, tag="2")]
         Auth(super::Auth),
-        #[prost(message, tag="12")]
+        #[prost(message, tag="3")]
         AuthResult(super::AuthResult),
-        #[prost(message, tag="13")]
+        #[prost(message, tag="4")]
         ChanLst(super::ChannelList),
-        #[prost(message, tag="14")]
+        #[prost(message, tag="5")]
         ChanLstResult(super::ChannelListResult),
-        #[prost(message, tag="15")]
+        #[prost(message, tag="6")]
         ChanJoin(super::ChannelJoin),
-        #[prost(message, tag="16")]
+        #[prost(message, tag="7")]
         ChanJoinResult(super::ChannelJoinResult),
-        #[prost(message, tag="17")]
+        #[prost(message, tag="8")]
         ChanPart(super::ChannelPart),
-        #[prost(message, tag="18")]
+        #[prost(message, tag="9")]
         ChanPartResult(super::ChannelPartResult),
-        #[prost(message, tag="19")]
+        #[prost(message, tag="10")]
         ChanStatus(super::ChannelStatus),
-        #[prost(message, tag="20")]
+        #[prost(message, tag="11")]
         ChanStatusResult(super::ChannelStatusResult),
+        #[prost(message, tag="12")]
+        Status(super::Status),
+        #[prost(message, tag="13")]
+        StatusResult(super::StatusResult),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct Auth {
-    #[prost(string, tag="20")]
+    #[prost(string, tag="1")]
     pub username: std::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct AuthResult {
-    #[prost(bool, tag="30")]
+    #[prost(bool, tag="1")]
     pub success: bool,
-    #[prost(bytes, tag="31")]
+    #[prost(bytes, tag="2")]
     pub connection_id: std::vec::Vec<u8>,
 }
 /// NIL
@@ -64,31 +68,29 @@ pub struct ChannelList {
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelListentry {
-    #[prost(string, tag="40")]
+    #[prost(string, tag="1")]
     pub name: std::string::String,
-    #[prost(bytes, tag="41")]
-    pub id: std::vec::Vec<u8>,
+    #[prost(bytes, tag="2")]
+    pub channel_id: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelListResult {
-    #[prost(message, repeated, tag="45")]
+    #[prost(message, repeated, tag="1")]
     pub channel: ::std::vec::Vec<ChannelListentry>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelJoin {
-    #[prost(string, tag="50")]
+    #[prost(string, tag="1")]
     pub name: std::string::String,
-    #[prost(bytes, tag="51")]
-    pub channel_id: std::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelJoinResult {
-    #[prost(bool, tag="60")]
+    #[prost(bool, tag="1")]
     pub success: bool,
-    #[prost(bytes, tag="61")]
+    #[prost(bytes, tag="2")]
     pub channel_id: std::vec::Vec<u8>,
 }
 /// Nil
@@ -99,17 +101,45 @@ pub struct ChannelPart {
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelPartResult {
-    #[prost(bool, tag="80")]
+    #[prost(bool, tag="1")]
     pub success: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelStatus {
-    #[prost(bytes, tag="90")]
-    pub channel_id: std::vec::Vec<u8>,
+    #[prost(string, tag="1")]
+    pub name: std::string::String,
 }
-/// TODO
+#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Eq)]
+pub struct UserEntry {
+    #[prost(string, tag="1")]
+    pub name: std::string::String,
+    #[prost(bytes, tag="2")]
+    pub user_id: std::vec::Vec<u8>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 #[derive(Eq)]
 pub struct ChannelStatusResult {
+    #[prost(string, tag="2")]
+    pub name: std::string::String,
+    #[prost(bytes, tag="3")]
+    pub channel_id: std::vec::Vec<u8>,
+    #[prost(message, repeated, tag="1")]
+    pub user: ::std::vec::Vec<UserEntry>,
+}
+/// Nil
+#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Eq)]
+pub struct Status {
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Eq)]
+pub struct StatusResult {
+    #[prost(bytes, tag="1")]
+    pub connection_id: std::vec::Vec<u8>,
+    #[prost(string, tag="2")]
+    pub channel: std::string::String,
+    #[prost(string, tag="3")]
+    pub name: std::string::String,
 }
