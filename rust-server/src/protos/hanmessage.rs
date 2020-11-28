@@ -59,6 +59,8 @@ pub mod han_message {
         ChanPartEv(super::ChannelPartEvent),
     }
 }
+///
+///Login, nothing works before that.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Auth {
@@ -73,6 +75,9 @@ pub struct AuthResult {
     #[prost(bytes="vec", tag="2")]
     pub connection_id: ::prost::alloc::vec::Vec<u8>,
 }
+///
+///List all channels.
+///
 /// NIL
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -92,6 +97,8 @@ pub struct ChannelListResult {
     #[prost(message, repeated, tag="1")]
     pub channel: ::prost::alloc::vec::Vec<ChannelListentry>,
 }
+///
+///Create a Channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelCreate {
@@ -108,6 +115,8 @@ pub struct ChannelCreateResult {
     #[prost(bytes="vec", tag="3")]
     pub channel_id: ::prost::alloc::vec::Vec<u8>,
 }
+///
+///Delete a channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelDelete {
@@ -124,6 +133,8 @@ pub struct ChannelDeleteResult {
     #[prost(bytes="vec", tag="3")]
     pub channel_id: ::prost::alloc::vec::Vec<u8>,
 }
+///
+///Join a channel. Automatically leaves current channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelJoin {
@@ -138,6 +149,9 @@ pub struct ChannelJoinResult {
     #[prost(bytes="vec", tag="2")]
     pub channel_id: ::prost::alloc::vec::Vec<u8>,
 }
+///
+///Leave current channel.
+///
 /// Nil
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -153,6 +167,8 @@ pub struct ChannelPartResult {
     #[prost(bytes="vec", tag="3")]
     pub channel_id: ::prost::alloc::vec::Vec<u8>,
 }
+///
+///List stats for a channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelStatus {
@@ -177,6 +193,9 @@ pub struct ChannelStatusResult {
     #[prost(message, repeated, tag="1")]
     pub user: ::prost::alloc::vec::Vec<UserEntry>,
 }
+///
+///List your own status.
+///
 /// Nil
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -192,6 +211,8 @@ pub struct StatusResult {
     #[prost(string, tag="3")]
     pub name: ::prost::alloc::string::String,
 }
+///
+///NOT YET WORKING. You should get this if someone joins your current channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelJoinEvent {
@@ -204,6 +225,8 @@ pub struct ChannelJoinEvent {
     #[prost(string, tag="4")]
     pub user_id: ::prost::alloc::string::String,
 }
+///*
+///Not YET WORKING. You should get this if someone leaves your channel.
 #[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelPartEvent {
