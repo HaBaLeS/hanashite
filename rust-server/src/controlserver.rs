@@ -102,4 +102,9 @@ async fn listen_tcp(state: Arc<Mutex<ServerState>>) -> Result<(), std::io::Error
 
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    #[test]
+    fn test() {
+
+    }
+}

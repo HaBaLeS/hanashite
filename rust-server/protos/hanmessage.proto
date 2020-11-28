@@ -16,6 +16,10 @@ message HanMessage {
   oneof msg {
     Auth auth = 2;
     AuthResult auth_result = 3;
+    ChannelCreate chan_crea = 14;
+    ChannelCreateResult chan_crea_result = 15;
+    ChannelDelete chan_del = 16;
+    ChannelDeleteResult chan_del_result = 17;
     ChannelList chan_lst = 4;
     ChannelListResult chan_lst_result = 5;
     ChannelJoin chan_join = 6;
@@ -26,6 +30,8 @@ message HanMessage {
     ChannelStatusResult chan_status_result = 11;
     Status status = 12;
     StatusResult status_result = 13;
+    ChannelJoinEvent chan_join_ev = 18;
+    ChannelPartEvent chan_part_ev = 19;
   }
 }
 
@@ -53,6 +59,26 @@ message ChannelListResult {
   repeated ChannelListentry channel = 1;
 }
 
+message ChannelCreate {
+  string name = 1;
+}
+
+message ChannelCreateResult {
+  bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
+}
+
+message ChannelDelete {
+  string name = 1;
+}
+
+message ChannelDeleteResult {
+  bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
+}
+
 message ChannelJoin {
   string name = 1;
 }
@@ -69,6 +95,8 @@ message ChannelPart {
 
 message ChannelPartResult {
   bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
 }
 
 message ChannelStatus {
@@ -95,4 +123,20 @@ message StatusResult {
   bytes connection_id = 1;
   string channel = 2;
   string name = 3;
+}
+
+
+message ChannelJoinEvent {
+  string channel_name = 1;
+  bytes channel_id = 2;
+  string user_name = 3;
+  string user_id = 4;
+}
+
+message ChannelPartEvent {
+  string channel_name = 1;
+  bytes channel_id = 2;
+  string user_name = 3;
+  string user_id = 4;
+  string reason = 6;
 }

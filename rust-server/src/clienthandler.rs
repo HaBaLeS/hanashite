@@ -1,11 +1,12 @@
 use bytes::{BytesMut, Buf};
 use futures::SinkExt;
 use crate::clienthandler::ClientState::{LOGGEDIN};
-use crate::controlserver::ServerState;
-use crate::protos::hanmessage::{HanMessage, Auth, StreamHeader, AuthResult, ChannelList, ChannelPart, ChannelJoin, ChannelStatus, ChannelJoinResult, ChannelListResult, ChannelListentry, Status, StatusResult, UserEntry, ChannelStatusResult};
+use crate::controlserver::{ServerState, ChannelState};
+use crate::protos::hanmessage::*;
 use crate::protos::hanmessage::han_message::Msg;
 use crate::util::Error;
 use prost::Message;
+use std::collections::{HashSet};
 use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream};
@@ -18,12 +19,14 @@ use tracing::{event, Level};
 use uuid::Uuid;
 
 #[allow(dead_code)]
+#[derive(PartialEq)]
 pub enum InternalMsg {
     DISCONNECT,
     SENDCTRL(Box<HanMessage>),
 }
 
 #[derive(Debug)]
+#[derive(PartialEq)]
 pub enum ClientState {
     CONNECTED,
     LOGGEDIN,
@@ -152,6 +155,10 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
     match &data.msg {
         Some(Msg::Auth(msg)) => handle_auth(client, &uuid, &msg).await,
         Some(Msg::AuthResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message AuthResult").await,
+        Some(Msg::ChanCrea(msg)) => handle_chan_crea(client, &uuid, &msg).await,
+        Some(Msg::ChanCreaResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanCreaResult").await,
+        Some(Msg::ChanDel(msg)) => handle_chan_del(client, &uuid, msg).await,
+        Some(Msg::ChanDelResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanDelResult").await,
         Some(Msg::ChanJoin(msg)) => handle_chan_join(client, &uuid, &msg).await,
         Some(Msg::ChanJoinResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanJoinResult").await,
         Some(Msg::ChanPart(msg)) => handle_chan_part(client, &uuid, &msg).await,
@@ -162,6 +169,8 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
         Some(Msg::ChanStatusResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanStatusResult").await,
         Some(Msg::Status(msg)) => handle_status(client, &uuid, &msg).await,
         Some(Msg::StatusResult(_)) => handle_illegal_msg(client, &uuid, "Illegal Message StatusResult").await,
+        Some(Msg::ChanJoinEv(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanJoinEv").await,
+        Some(Msg::ChanPartEv(_)) => handle_illegal_msg(client, &uuid, "Illegal Message ChanPartEv").await,
         None => handle_illegal_msg(client, &uuid, "Empty message").await
     }
 }
@@ -169,6 +178,92 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
 /////////////////////
 // Message Handler //
 /////////////////////
+
+async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
+    let (sender, msg) = {
+        let mut state = client.lock().unwrap();
+        if let LOGGEDIN = state.client_state {
+            return Err(Error::ProtocolError("Relogin after login !".to_string()));
+        }
+        state.username = msg.username.clone();
+        state.client_state = ClientState::LOGGEDIN;
+        event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
+        (state.sender.clone(), Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::AuthResult(
+                AuthResult {
+                    success: true,
+                    connection_id: Vec::from(&state.uuid.as_bytes()[..]),
+                }
+            )),
+        }))
+    };
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(msg)).await.unwrap_or(()) });
+    Ok(())
+}
+
+async fn handle_chan_crea(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelCreate) -> Result<(), Error> {
+    let (result, sender) = {
+        let client = client.lock().unwrap();
+        let mut server = client.server.lock().unwrap();
+        let (succ, channel_id) =
+            match server.channels.iter()
+                .filter(|(_, val)| val.name == msg.name)
+                .nth(0) {
+                None => {
+                    let c_id = Uuid::new_v4();
+                    server.channels.insert(c_id.clone(), ChannelState {
+                        name: msg.name.clone(),
+                        users: HashSet::new(),
+                    });
+                    (true, c_id)
+                }
+                Some((u, _)) => (false, u.clone())
+            };
+        (Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::ChanCreaResult(ChannelCreateResult {
+                name: msg.name.clone(),
+                success: succ,
+                channel_id: Vec::from(&channel_id.as_bytes()[..]),
+            })),
+        }), client.sender.clone())
+    };
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
+    Ok(())
+}
+
+async fn handle_chan_del(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelDelete) -> Result<(), Error> {
+    // TODO ChannelPartEv
+    let (result, sender) = {
+        let client = client.lock().unwrap();
+        let mut server = client.server.lock().unwrap();
+        let (succ, channel_id) = {
+            let channel_id = server.channels.iter()
+                .filter(|(_, val)| val.name == msg.name)
+                .map(|(u, _)| u.clone())
+                .nth(0);
+            match channel_id {
+                Some(u) => {
+                    server.channels.remove(&u);
+                    (true, Vec::from(&u.as_bytes()[..]))
+                }
+                None => (false, vec![])
+            }
+        };
+        (Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::ChanDelResult(ChannelDeleteResult {
+                name: msg.name.clone(),
+                success: succ,
+                channel_id,
+            })),
+        }), client.sender.clone())
+    };
+
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
+    Ok(())
+}
 
 
 async fn handle_status(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &Status) -> Result<(), Error> {
@@ -187,7 +282,7 @@ async fn handle_status(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &Status)
             })),
         }), client.sender.clone())
     };
-    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
     Ok(())
 }
 
@@ -196,9 +291,12 @@ async fn handle_chan_status(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Cha
         let client = client.lock().unwrap();
         let server = client.server.lock().unwrap();
         let client_id = &client.uuid;
-        fn create_user(client_id: &Uuid, id: &Uuid, handle: &Arc<Mutex<ClientHandle>>) -> Option<UserEntry> {
+        fn create_user(client_id: &Uuid, client_name: &String, id: &Uuid, handle: &Arc<Mutex<ClientHandle>>) -> Option<UserEntry> {
             if client_id == id {
-                return None;
+                return Some(UserEntry {
+                    name: client_name.clone(),
+                    user_id: Vec::from(&client_id.as_bytes()[..]),
+                });
             }
             let handle = handle.lock().unwrap();
             Some(UserEntry {
@@ -210,7 +308,7 @@ async fn handle_chan_status(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Cha
         if let Some((channel_id, channel)) = channel {
             let chan: Vec<UserEntry> = channel.users.iter()
                 .map(|x|
-                    server.clients.get(x).map(|y| create_user(&client_id, x, y)
+                    server.clients.get(x).map(|y| create_user(&client_id, &client.username, x, y)
                     ).unwrap_or(None))
                 .filter(|x| x.is_some())
                 .map(|x| x.unwrap())
@@ -238,8 +336,40 @@ async fn handle_chan_status(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Cha
     Ok(())
 }
 
-async fn handle_chan_part(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _msg: &ChannelPart) -> Result<(), Error> {
-    todo!()
+async fn handle_chan_part(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &ChannelPart) -> Result<(), Error> {
+    let (result, sender) = {
+        let state = client.lock().unwrap();
+        let mut server = state.server.lock().unwrap();
+        let channel_id = server.channels.iter()
+            .filter(|(_, c)| c.users.contains(&state.uuid))
+            .map(|(u, _)| u.clone()).nth(0);
+        (if let Some(id) = channel_id {
+            let name = {
+                let channel = server.channels.get_mut(&id).unwrap();
+                channel.users.remove(&state.uuid);
+                channel.name.clone()
+            };
+            Box::new(HanMessage {
+                message_id: Vec::from(&uuid.as_bytes()[..]),
+                msg: Some(Msg::ChanPartResult(ChannelPartResult {
+                    name,
+                    channel_id: Vec::from(&id.as_bytes()[..]),
+                    success: true,
+                })),
+            })
+        } else {
+            Box::new(HanMessage {
+                message_id: Vec::from(&uuid.as_bytes()[..]),
+                msg: Some(Msg::ChanPartResult(ChannelPartResult {
+                    name: "".to_string(),
+                    channel_id: vec![],
+                    success: false,
+                })),
+            })
+        }, state.sender.clone())
+    };
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
+    Ok(())
 }
 
 async fn handle_chan_lst(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &ChannelList) -> Result<(), Error> {
@@ -290,38 +420,13 @@ async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Chann
     Ok(())
 }
 
-async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
-    let (sender, state_uuid) = {
-        let mut state = client.lock().unwrap();
-        if let LOGGEDIN = state.client_state {
-            return Err(Error::ProtocolError("Relogin after login !".to_string()));
-        }
-        state.username = msg.username.clone();
-        state.client_state = ClientState::LOGGEDIN;
-        event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
-        (state.sender.clone(), state.uuid)
-    };
-    sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
-        message_id: Vec::from(&uuid.as_bytes()[..]),
-        msg: Some(Msg::AuthResult(
-            AuthResult {
-                success: true,
-                connection_id: Vec::from(&state_uuid.as_bytes()[..]),
-            }
-        )),
-    }))).await?;
-    Ok(())
-}
-
 async fn handle_illegal_msg(_client: &Mutex<ClientHandle>, _uuid: &Uuid, _message: &str) -> Result<(), Error> {
     Err(Error::ProtocolError("Illegal Message".to_string()))
 }
 
-
 const HEADER_LENGTH: usize = 10;
 
 impl MessageParser {}
-
 
 impl Decoder for MessageParser {
     type Item = Box<HanMessage>;
@@ -361,11 +466,379 @@ impl Encoder<Box<HanMessage>> for MessageParser {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::protos::hanmessage::StreamHeader;
+    use crate::protos::hanmessage::{StreamHeader, Auth, Status, ChannelCreate, ChannelDelete, ChannelJoin, ChannelPart, ChannelList, ChannelStatus};
     use prost::Message;
+    use crate::controlserver::{ServerState, ChannelState};
+    use std::sync::{Arc, Mutex};
+    use std::collections::{HashSet, HashMap};
+    use std::iter::FromIterator;
+    use tokio;
+    use tokio::sync::mpsc::{channel, Receiver};
+    use uuid::Uuid;
+    use crate::clienthandler::{ClientState, ClientHandle, InternalMsg, handle_auth, handle_status, handle_chan_crea, handle_chan_del, handle_chan_join, handle_chan_part, handle_chan_lst, handle_chan_status};
+    use crate::protos::hanmessage::han_message::Msg;
+    use crate::clienthandler::ClientState::{LOGGEDIN};
+
+
+    macro_rules! aw {
+      ($e:expr) => {
+        ::tokio::time::timeout(::std::time::Duration::from_millis(1000), $e).await.unwrap()
+      };
+    }
+
+    #[allow(dead_code)]
+    struct TestSetup {
+        uuid1: Uuid,
+        uuid2: Uuid,
+        uuid3: Uuid,
+        receiver1: Receiver<InternalMsg>,
+        receiver2: Receiver<InternalMsg>,
+        receiver3: Receiver<InternalMsg>,
+        server: Arc<Mutex<ServerState>>,
+    }
+
+    fn setup_server() -> TestSetup {
+        let server = Arc::new(Mutex::new(ServerState {
+            udp_sender: None,
+            channels: HashMap::new(),
+            clients: HashMap::new(),
+        }));
+        let (sender1, receiver1) = channel(100);
+        let (sender2, receiver2) = channel(100);
+        let (sender3, receiver3) = channel(100);
+        let uuid1 = Uuid::from_slice(&[1; 16][..]).unwrap();
+        let uuid2 = Uuid::from_slice(&[2; 16][..]).unwrap();
+        let uuid3 = Uuid::from_slice(&[3; 16][..]).unwrap();
+
+        {
+            let mut state = server.lock().unwrap();
+
+            state.channels.insert(uuid1.clone(), ChannelState {
+                name: "testchannel1".to_string(),
+                users: HashSet::new(),
+            });
+            state.channels.insert(uuid2.clone(), ChannelState {
+                name: "testchannel2".to_string(),
+                users: HashSet::from_iter(vec![uuid1.clone(), uuid2.clone()]),
+            });
+            state.clients.insert(uuid1.clone(), Arc::new(Mutex::new(ClientHandle {
+                client_state: ClientState::LOGGEDIN,
+                uuid: uuid1.clone(),
+                username: "testuser1".to_string(),
+                server: server.clone(),
+                udp_socket: None,
+                sender: sender1,
+            })));
+            state.clients.insert(uuid2.clone(), Arc::new(Mutex::new(ClientHandle {
+                client_state: ClientState::LOGGEDIN,
+                uuid: uuid2.clone(),
+                username: "testuser2".to_string(),
+                server: server.clone(),
+                udp_socket: None,
+                sender: sender2,
+            })));
+            state.clients.insert(uuid3.clone(), Arc::new(Mutex::new(ClientHandle {
+                client_state: ClientState::CONNECTED,
+                uuid: uuid3.clone(),
+                username: "".to_string(),
+                server: server.clone(),
+                udp_socket: None,
+                sender: sender3,
+            })));
+        }
+        TestSetup {
+            uuid1,
+            uuid2,
+            uuid3,
+            receiver1,
+            receiver2,
+            receiver3,
+            server,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_auth() {
+        let mut test_setup = setup_server();
+        let user3 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid3).unwrap().clone()
+        };
+        aw!(handle_auth(&user3, &test_setup.uuid1, &Auth {
+            username: "testuser3".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver3.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::AuthResult(r)) = hmsg.msg {
+                assert_eq!(true, r.success);
+                assert_eq!(&test_setup.uuid3, &Uuid::from_slice(&r.connection_id[..]).unwrap());
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        {
+            let client = user3.lock().unwrap();
+            assert_eq!(LOGGEDIN, client.client_state);
+            assert_eq!("testuser3", client.username);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chan_crea_succ() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_crea(&user1, &test_setup.uuid1, &ChannelCreate {
+            name: "testchannel3".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanCreaResult(r)) = hmsg.msg {
+                assert!(r.success);
+                assert_eq!("testchannel3".to_string(), r.name);
+                assert!(r.channel_id.len() == 16);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chan_crea_fail() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_crea(&user1, &test_setup.uuid1, &ChannelCreate {
+            name: "testchannel1".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanCreaResult(r)) = hmsg.msg {
+                assert_eq!(false, r.success);
+                assert_eq!("testchannel1".to_string(), r.name);
+                assert_eq!(&test_setup.uuid1, &Uuid::from_slice(&r.channel_id[..]).unwrap());
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chan_del_succ() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_del(&user1, &test_setup.uuid1, &ChannelDelete {
+            name: "testchannel2".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanDelResult(r)) = hmsg.msg {
+                assert_eq!(true, r.success);
+                assert_eq!("testchannel2".to_string(), r.name);
+                assert_eq!(&test_setup.uuid2, &Uuid::from_slice(&r.channel_id[..]).unwrap());
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        assert_eq!(1, test_setup.server.lock().unwrap().channels.len());
+    }
+
+    #[tokio::test]
+    async fn test_chan_del_fail() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_del(&user1, &test_setup.uuid1, &ChannelDelete {
+            name: "testchannel99".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanDelResult(r)) = hmsg.msg {
+                assert_eq!(false, r.success);
+                assert_eq!("testchannel99".to_string(), r.name);
+                assert_eq!(&Vec::<u8>::new(), &r.channel_id);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        assert_eq!(2, test_setup.server.lock().unwrap().channels.len());
+    }
+
+    #[tokio::test]
+    async fn test_chan_join_succ() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_join(&user1, &test_setup.uuid1, &ChannelJoin {
+            name: "testchannel1".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanJoinResult(r)) = hmsg.msg {
+                assert_eq!(true, r.success);
+                assert_eq!(&test_setup.uuid1, &Uuid::from_slice(&r.channel_id[..]).unwrap());
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        let server = test_setup.server.lock().unwrap();
+        assert!(server.channels.get(&test_setup.uuid1).unwrap().users.contains(&test_setup.uuid1));
+        assert_eq!(false, server.channels.get(&test_setup.uuid2).unwrap().users.contains(&test_setup.uuid1));
+    }
+
+    #[tokio::test]
+    async fn test_chan_join_fail() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_join(&user1, &test_setup.uuid1, &ChannelJoin {
+            name: "testchannel99".to_string()
+        })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanJoinResult(r)) = hmsg.msg {
+                assert_eq!(false, r.success);
+                assert_eq!(&Vec::<u8>::new(), &r.channel_id);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        let server = test_setup.server.lock().unwrap();
+        assert_eq!(false, server.channels.get(&test_setup.uuid2).unwrap().users.contains(&test_setup.uuid1));
+    }
+
+    #[tokio::test]
+    async fn test_chan_part_succ() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_part(&user1, &test_setup.uuid1, &ChannelPart {})).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanPartResult(r)) = hmsg.msg {
+                assert_eq!(true, r.success);
+                assert_eq!(&test_setup.uuid2, &Uuid::from_slice(&r.channel_id[..]).unwrap());
+                assert_eq!(&"testchannel2".to_string(), &r.name);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+        let server = test_setup.server.lock().unwrap();
+        assert_eq!(false, server.channels.get(&test_setup.uuid2).unwrap().users.contains(&test_setup.uuid1));
+        assert_eq!(false, server.channels.get(&test_setup.uuid1).unwrap().users.contains(&test_setup.uuid1));
+    }
+
+    #[tokio::test]
+    async fn test_chan_part_fail() {
+        let mut test_setup = setup_server();
+        let user3 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid3).unwrap().clone()
+        };
+        aw!(handle_chan_part(&user3, &test_setup.uuid1, &ChannelPart {})).unwrap();
+        let msg = aw!(test_setup.receiver3.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanPartResult(r)) = hmsg.msg {
+                assert_eq!(false, r.success);
+                assert_eq!(Vec::<u8>::new(), &r.channel_id[..]);
+                assert_eq!(&"".to_string(), &r.name);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chan_lst() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_lst(&user1, &test_setup.uuid1, &ChannelList {})).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanLstResult(r)) = hmsg.msg {
+                let channels: HashSet<String> = r.channel.iter().map(|e| e.name.clone()).collect();
+                let expected: HashSet<String> = ["testchannel2".to_string(), "testchannel1".to_string() ].iter().map(|e| e.clone()).collect();
+                assert_eq!(&expected, &channels);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chan_status() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_chan_status(&user1, &test_setup.uuid1, &ChannelStatus { name: "testchannel2".to_string() })).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::ChanStatusResult(r)) = hmsg.msg {
+                assert_eq!(&"testchannel2".to_string(), &r.name);
+                let users: HashSet<String> = r.user.iter().map(|e| e.name.clone()).collect();
+                let expected: HashSet<String> = ["testuser1".to_string(), "testuser2".to_string() ].iter().map(|e| e.clone()).collect();
+                assert_eq!(&expected, &users);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_status() {
+        let mut test_setup = setup_server();
+        let user1 = {
+            test_setup.server.lock().unwrap().clients.get(&test_setup.uuid1).unwrap().clone()
+        };
+        aw!(handle_status(&user1, &test_setup.uuid1, &Status {})).unwrap();
+        let msg = aw!(test_setup.receiver1.recv()).unwrap();
+        let client = user1.lock().unwrap();
+        if let InternalMsg::SENDCTRL(hmsg) = msg {
+            if let Some(Msg::StatusResult(r)) = hmsg.msg {
+                assert_eq!(&test_setup.uuid1, &Uuid::from_slice(&r.connection_id[..]).unwrap());
+                assert_eq!(&client.username, &r.name);
+                assert_eq!(&"testchannel2".to_string(), &r.channel);
+            } else {
+                assert!(false, "Wrong Message !");
+            }
+        } else {
+            assert!(false, "Wrong Message !");
+        }
+    }
+
 
     #[test]
     fn testheader() {
