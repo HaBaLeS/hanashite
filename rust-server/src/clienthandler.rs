@@ -180,7 +180,7 @@ async fn multiplex(client: &Mutex<ClientHandle>, data: &HanMessage) -> Result<()
 /////////////////////
 
 async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> Result<(), Error> {
-    let (sender, msg) = {
+    let (result, sender) = {
         let mut state = client.lock().unwrap();
         if let LOGGEDIN = state.client_state {
             return Err(Error::ProtocolError("Relogin after login !".to_string()));
@@ -188,7 +188,7 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
         state.username = msg.username.clone();
         state.client_state = ClientState::LOGGEDIN;
         event!(Level::TRACE, "Received Auth UUID: {}, user: {}", &uuid, &msg.username);
-        (state.sender.clone(), Box::new(HanMessage {
+        (Box::new(HanMessage {
             message_id: Vec::from(&uuid.as_bytes()[..]),
             msg: Some(Msg::AuthResult(
                 AuthResult {
@@ -196,9 +196,9 @@ async fn handle_auth(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Auth) -> R
                     connection_id: Vec::from(&state.uuid.as_bytes()[..]),
                 }
             )),
-        }))
+        }), state.sender.clone())
     };
-    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(msg)).await.unwrap_or(()) });
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()) });
     Ok(())
 }
 
@@ -332,7 +332,7 @@ async fn handle_chan_status(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Cha
             }), client.sender.clone())
         }
     };
-    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
     Ok(())
 }
 
@@ -385,12 +385,12 @@ async fn handle_chan_lst(client: &Mutex<ClientHandle>, uuid: &Uuid, _msg: &Chann
             })),
         }), client.sender.clone())
     };
-    sender.send(InternalMsg::SENDCTRL(result)).await?;
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
     Ok(())
 }
 
 async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &ChannelJoin) -> Result<(), Error> {
-    let (sender, message) = || -> Result<(Sender<InternalMsg>, ChannelJoinResult), Error>{
+    let (result, sender) = {
         let state = client.lock().unwrap();
         if let ClientState::CONNECTED = state.client_state {
             return Err(Error::ProtocolError("Not Logged in".to_string()));
@@ -399,24 +399,24 @@ async fn handle_chan_join(client: &Mutex<ClientHandle>, uuid: &Uuid, msg: &Chann
         for channel in server.channels.values_mut() {
             channel.users.remove(&state.uuid);
         }
-        for (channel_id, channel) in server.channels.iter_mut() {
-            if channel.name == msg.name {
-                channel.users.insert(state.uuid);
-                return Ok((state.sender.clone(), ChannelJoinResult {
+        (Box::new(HanMessage {
+            message_id: Vec::from(&uuid.as_bytes()[..]),
+            msg: Some(Msg::ChanJoinResult(match server.channels.iter_mut().filter(|(_, c)| c.name == msg.name)
+            .nth(0) {
+            Some((u, c)) => {
+                c.users.insert(state.uuid);
+                ChannelJoinResult {
                     success: true,
-                    channel_id: Vec::from(&channel_id.as_bytes()[..]),
-                }));
+                    channel_id: Vec::from(&u.as_bytes()[..]),
+                }
             }
-        }
-        return Ok((state.sender.clone(), ChannelJoinResult {
-            success: false,
-            channel_id: vec![],
-        }));
-    }()?;
-    sender.send(InternalMsg::SENDCTRL(Box::new(HanMessage {
-        message_id: Vec::from(&uuid.as_bytes()[..]),
-        msg: Some(Msg::ChanJoinResult(message)),
-    }))).await?;
+            None => ChannelJoinResult {
+                success: false,
+                channel_id: vec![],
+            }
+        }))}), state.sender.clone())
+    };
+    tokio::spawn(async move { sender.send(InternalMsg::SENDCTRL(result)).await.unwrap_or(()); });
     Ok(())
 }
 
@@ -785,7 +785,7 @@ mod tests {
         if let InternalMsg::SENDCTRL(hmsg) = msg {
             if let Some(Msg::ChanLstResult(r)) = hmsg.msg {
                 let channels: HashSet<String> = r.channel.iter().map(|e| e.name.clone()).collect();
-                let expected: HashSet<String> = ["testchannel2".to_string(), "testchannel1".to_string() ].iter().map(|e| e.clone()).collect();
+                let expected: HashSet<String> = ["testchannel2".to_string(), "testchannel1".to_string()].iter().map(|e| e.clone()).collect();
                 assert_eq!(&expected, &channels);
             } else {
                 assert!(false, "Wrong Message !");
@@ -807,7 +807,7 @@ mod tests {
             if let Some(Msg::ChanStatusResult(r)) = hmsg.msg {
                 assert_eq!(&"testchannel2".to_string(), &r.name);
                 let users: HashSet<String> = r.user.iter().map(|e| e.name.clone()).collect();
-                let expected: HashSet<String> = ["testuser1".to_string(), "testuser2".to_string() ].iter().map(|e| e.clone()).collect();
+                let expected: HashSet<String> = ["testuser1".to_string(), "testuser2".to_string()].iter().map(|e| e.clone()).collect();
                 assert_eq!(&expected, &users);
             } else {
                 assert!(false, "Wrong Message !");
