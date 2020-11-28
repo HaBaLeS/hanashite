@@ -35,7 +35,9 @@ message HanMessage {
   }
 }
 
-
+/*
+Login, nothing works before that.
+ */
 message Auth {
   string username = 1;
 }
@@ -46,6 +48,9 @@ message AuthResult {
 }
 
 
+/*
+List all channels.
+ */
 message ChannelList {
   // NIL
 }
@@ -59,6 +64,9 @@ message ChannelListResult {
   repeated ChannelListentry channel = 1;
 }
 
+/*
+Create a Channel.
+ */
 message ChannelCreate {
   string name = 1;
 }
@@ -69,6 +77,9 @@ message ChannelCreateResult {
   bytes channel_id = 3;
 }
 
+/*
+Delete a channel.
+ */
 message ChannelDelete {
   string name = 1;
 }
@@ -79,6 +90,9 @@ message ChannelDeleteResult {
   bytes channel_id = 3;
 }
 
+/*
+Join a channel. Automatically leaves current channel.
+ */
 message ChannelJoin {
   string name = 1;
 }
@@ -89,6 +103,9 @@ message ChannelJoinResult {
 
 }
 
+/*
+Leave current channel.
+ */
 message ChannelPart {
   // Nil
 }
@@ -99,6 +116,9 @@ message ChannelPartResult {
   bytes channel_id = 3;
 }
 
+/*
+List stats for a channel.
+ */
 message ChannelStatus {
   string name = 1;
 }
@@ -114,6 +134,9 @@ message ChannelStatusResult {
   repeated UserEntry user = 1;
 }
 
+/*
+List your own status.
+ */
 message Status {
   // Nil
 }
@@ -125,7 +148,9 @@ message StatusResult {
   string name = 3;
 }
 
-
+/*
+NOT YET WORKING. You should get this if someone joins your current channel.
+ */
 message ChannelJoinEvent {
   string channel_name = 1;
   bytes channel_id = 2;
@@ -133,6 +158,9 @@ message ChannelJoinEvent {
   string user_id = 4;
 }
 
+/**
+Not YET WORKING. You should get this if someone leaves your channel.
+ */
 message ChannelPartEvent {
   string channel_name = 1;
   bytes channel_id = 2;
