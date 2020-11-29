@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package hanmessage;
+option go_package = ".;serialize";
+
+/**
+ * Envelope to enable easy parsing of multiple types of messages
+ */
+message StreamHeader {
+  fixed32 magic = 1;
+  fixed32 length = 2;
+}
+
+message HanMessage {
+  bytes message_id = 1;
+  oneof msg {
+    Auth auth = 2;
+    AuthResult auth_result = 3;
+    ChannelCreate chan_crea = 14;
+    ChannelCreateResult chan_crea_result = 15;
+    ChannelDelete chan_del = 16;
+    ChannelDeleteResult chan_del_result = 17;
+    ChannelList chan_lst = 4;
+    ChannelListResult chan_lst_result = 5;
+    ChannelJoin chan_join = 6;
+    ChannelJoinResult chan_join_result = 7;
+    ChannelPart chan_part = 8;
+    ChannelPartResult  chan_part_result = 9;
+    ChannelStatus chan_status = 10;
+    ChannelStatusResult chan_status_result = 11;
+    Status status = 12;
+    StatusResult status_result = 13;
+    ChannelJoinEvent chan_join_ev = 18;
+    ChannelPartEvent chan_part_ev = 19;
+  }
+}
+
+/*
+Login, nothing works before that.
+ */
+message Auth {
+  string username = 1;
+}
+
+message AuthResult {
+  bool success = 1;
+  bytes connection_id = 2;
+}
+
+
+/*
+List all channels.
+ */
+message ChannelList {
+  // NIL
+}
+
+message ChannelListentry {
+  string name = 1;
+  bytes channel_id = 2;
+}
+
+message ChannelListResult {
+  repeated ChannelListentry channel = 1;
+}
+
+/*
+Create a Channel.
+ */
+message ChannelCreate {
+  string name = 1;
+}
+
+message ChannelCreateResult {
+  bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
+}
+
+/*
+Delete a channel.
+ */
+message ChannelDelete {
+  string name = 1;
+}
+
+message ChannelDeleteResult {
+  bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
+}
+
+/*
+Join a channel. Automatically leaves current channel.
+ */
+message ChannelJoin {
+  string name = 1;
+}
+
+message ChannelJoinResult {
+  bool success = 1;
+  bytes channel_id = 2;
+
+}
+
+/*
+Leave current channel.
+ */
+message ChannelPart {
+  // Nil
+}
+
+message ChannelPartResult {
+  bool success = 1;
+  string name = 2;
+  bytes channel_id = 3;
+}
+
+/*
+List stats for a channel.
+ */
+message ChannelStatus {
+  string name = 1;
+}
+
+message UserEntry {
+  string name = 1;
+  bytes user_id = 2;
+}
+
+message ChannelStatusResult {
+  string name = 2;
+  bytes channel_id = 3;
+  repeated UserEntry user = 1;
+}
+
+/*
+List your own status.
+ */
+message Status {
+  // Nil
+}
+
+
+message StatusResult {
+  bytes connection_id = 1;
+  string channel = 2;
+  string name = 3;
+}
+
+/*
+NOT YET WORKING. You should get this if someone joins your current channel.
+ */
+message ChannelJoinEvent {
+  string channel_name = 1;
+  bytes channel_id = 2;
+  string user_name = 3;
+  string user_id = 4;
+}
+
+/**
+Not YET WORKING. You should get this if someone leaves your channel.
+ */
+message ChannelPartEvent {
+  string channel_name = 1;
+  bytes channel_id = 2;
+  string user_name = 3;
+  string user_id = 4;
+  string reason = 6;
+}
