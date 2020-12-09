@@ -88,7 +88,7 @@ impl AuthServer for ServerStruct {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::test::*;
+    use crate::server::test::*;
     use assert_matches::assert_matches;
     use sodiumoxide::crypto::sign::{sign_detached};
 

@@ -1,26 +1,29 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
+use std::sync::Mutex;
+
+use sodiumoxide::crypto::sign::PublicKey;
+use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast::{channel, Sender};
+use tracing::{Level, span};
+use tracing_futures::Instrument;
+use uuid::Uuid;
+
+pub use auth::*;
+use hanashite_message::protos::hanmessage::HanMessage;
+
+use crate::{tcp, udp};
+use crate::configuration::Config;
+use crate::error::Error;
+
 pub mod auth;
 pub mod channel;
 
 #[cfg(test)]
 pub mod test;
-
-pub use auth::*;
-use crate::{tcp, udp};
-use crate::configuration::Config;
-use crate::error::Error;
-use hanashite_message::protos::hanmessage::HanMessage;
-use sodiumoxide::crypto::sign::PublicKey;
-use std::collections::HashSet;
-use std::sync::Arc;
-use tokio::sync::broadcast::{Sender, channel};
-use tokio::sync::{broadcast, mpsc};
-use tracing::{Level, span};
-use tracing_futures::{Instrument};
-use uuid::Uuid;
-use std::net::SocketAddr;
-use std::sync::atomic::AtomicU32;
-use std::sync::Mutex;
-use std::collections::HashMap;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -89,6 +92,7 @@ pub struct ServerStruct {
 
 
 pub trait Server {
+    fn send_to_connection(&self, connection_id: &Uuid, msg: ControlMessage) -> Result<(), Error>;
     fn connection_sender(&self, connection_id: &Uuid) -> Result<mpsc::Sender<ControlMessage>, Error>;
     fn terminate_connection(&self, connection_id: &Uuid);
 }
@@ -167,5 +171,13 @@ impl Server for ServerStruct {
         if let Some(connection) = connections.get(connection_id) {
             connection.termination_sender.send(()).unwrap_or(0);
         }
+    }
+
+    async fn send_to_connection(&self, connection_id: &Uuid, msg: ControlMessage) -> Result<(), Error> {
+        let connections = self.connections.lock().unwrap();
+        if let Some(connection) = connections.get(connection_id) {
+            connection.sender.send(msg).await;
+        }
+        Err(Error::InternalError("Illegal Connection Id".to_string()))
     }
 }

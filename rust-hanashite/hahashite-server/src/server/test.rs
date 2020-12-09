@@ -1,16 +1,18 @@
 #![cfg(test)]
-use tokio::sync::{mpsc, broadcast};
+
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
-use crate::server::{ServerStruct, ConnectionState, Connection, User};
+use std::sync::atomic::Ordering;
+
+use rand::{RngCore, thread_rng};
 use sodiumoxide::crypto::sign;
 use sodiumoxide::crypto::sign::{PublicKey, SecretKey};
+use tokio::sync::{broadcast, mpsc};
+use std::collections::HashSet;
 use uuid::Uuid;
-use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
-use std::str::FromStr;
-use rand::{RngCore, thread_rng};
-
-
+use crate::server::{Connection, ConnectionState, ServerStruct, User, VoiceChannel};
+use std::iter::FromIterator;
 
 pub struct TestData {
     pub server: Arc<ServerStruct>,
@@ -84,6 +86,22 @@ pub fn setup_test() -> TestData {
         let (pk, sk) = sign::gen_keypair();
         result.public_keys.push(pk);
         result.secret_keys.push(sk);
+
+        let mut voice_channels = result.server.voice_channels.lock().unwrap();
+        let channel_id = Uuid::new_v4();
+        voice_channels.insert("testchannel1".to_string(), VoiceChannel {
+            channel_id: channel_id.clone(),
+            connections: HashSet::new(),
+            name: "testchannel1".to_string(),
+            roles: HashSet::new(),
+        });
+        let channel_id = Uuid::new_v4();
+        voice_channels.insert("testchannel2".to_string(), VoiceChannel {
+            channel_id: channel_id.clone(),
+            connections: HashSet::from_iter(vec![result.connections[0].clone()]),
+            name: "testchannel2".to_string(),
+            roles: HashSet::new()
+        });
     }
     result
 }

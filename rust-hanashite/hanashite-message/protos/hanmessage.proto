@@ -18,6 +18,8 @@ message HanMessage {
     AuthResponse auth_response = 3;
     Challenge challenge = 4;
     ChallengeResponse challenge_response = 5;
+    VoiceChannelJoin voice_channel_join = 6;
+    VoiceChannelJoinResponse voice_channel_join_response = 7;
   }
 }
 
@@ -54,11 +56,8 @@ message VoiceChannelJoin {
   string name = 1;
 }
 
-message VoiceChannelJoinResult {
-  enum ResultState {
-    UNKNOWN = 0;
-    SUCCESS = 1;
-  }
+message VoiceChannelJoinResponse {
   bool success = 1;
   bytes channel_id = 2;
+  string message = 3;
 }

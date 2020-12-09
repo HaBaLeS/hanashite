@@ -11,7 +11,7 @@ pub struct StreamHeader {
 pub struct HanMessage {
     #[prost(bytes="vec", tag="1")]
     pub message_id: ::prost::alloc::vec::Vec<u8>,
-    #[prost(oneof="han_message::Msg", tags="2, 3, 4, 5")]
+    #[prost(oneof="han_message::Msg", tags="2, 3, 4, 5, 6, 7")]
     pub msg: ::core::option::Option<han_message::Msg>,
 }
 /// Nested message and enum types in `HanMessage`.
@@ -26,6 +26,10 @@ pub mod han_message {
         Challenge(super::Challenge),
         #[prost(message, tag="5")]
         ChallengeResponse(super::ChallengeResponse),
+        #[prost(message, tag="6")]
+        VoiceChannelJoin(super::VoiceChannelJoin),
+        #[prost(message, tag="7")]
+        VoiceChannelJoinResponse(super::VoiceChannelJoinResponse),
     }
 }
 ///
@@ -73,18 +77,11 @@ pub struct VoiceChannelJoin {
     pub name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VoiceChannelJoinResult {
+pub struct VoiceChannelJoinResponse {
     #[prost(bool, tag="1")]
     pub success: bool,
     #[prost(bytes="vec", tag="2")]
     pub channel_id: ::prost::alloc::vec::Vec<u8>,
-}
-/// Nested message and enum types in `VoiceChannelJoinResult`.
-pub mod voice_channel_join_result {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum ResultState {
-        Unknown = 0,
-        Success = 1,
-    }
+    #[prost(string, tag="3")]
+    pub message: ::prost::alloc::string::String,
 }
