@@ -1,9 +1,8 @@
-extern crate tokio;
-
 mod configuration;
-mod error;
-mod protos;
 mod server;
+mod tcp;
+mod udp;
+mod error;
 
 use std::path::Path;
 use tokio::runtime::Builder;
@@ -32,8 +31,8 @@ fn main() {
 }
 
 async fn mainloop(config: Box<Config>) {
-    let server = server::Server::init(config);
-    if let Err(e) = server::Server::run(server).await {
+    let server = server::ServerStruct::init(config);
+    if let Err(e) = server::ServerStruct::run(server).await {
         error!("Main loop ended with Error: {}", &e);
     } else {
         info!("Main loop ended gracefully.");

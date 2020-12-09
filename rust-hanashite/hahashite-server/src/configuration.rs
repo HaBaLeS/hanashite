@@ -127,6 +127,11 @@ impl Default for Server {
     }
 }
 
+#[cfg(test)]
+pub fn default() -> Box<Config> {
+    Box::new(toml::from_slice(&[]).unwrap())
+}
+
 pub fn init(path: &Path) -> Box<Config> {
     let config_file = fs::read_to_string(path).unwrap_or("".to_string());
     match toml::from_str(&config_file) {

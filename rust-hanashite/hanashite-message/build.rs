@@ -7,8 +7,8 @@ fn main() {
         .join("src").join("protos");
 
     let in_dir = PathBuf::from(::std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .parent().unwrap()
         .join("protos");
+    println!("{:?}", &in_dir);
     // Re-run this build.rs if the protos dir changes (i.e. a new file is added)
     println!("cargo:rerun-if-changed={}", in_dir.to_str().unwrap());
 
@@ -24,6 +24,6 @@ fn main() {
     }
     let mut prost_build = prost_build::Config::new();
     prost_build.out_dir(out_dir);
-    prost_build.type_attribute(".", "#[derive(Eq,Hash)]");
+    println!("{:?}", protos);
     prost_build.compile_protos(&protos, &[in_dir]).unwrap();
 }

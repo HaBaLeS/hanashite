@@ -1,21 +1,36 @@
+use hanashite_message::codec::HanMessageCodec;
 use crate::error::Error;
-use crate::server::ControlMessage;
-use super::HanMessageCodec;
+use crate::server::{ControlMessage, Server};
 use tracing::{info, warn, trace};
 use tokio::net::tcp::WriteHalf;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{mpsc, broadcast};
 use tokio_util::codec::FramedWrite;
 use futures::{SinkExt};
+use uuid::Uuid;
+use std::sync::Arc;
 
-impl super::ClientConnection {
-    pub async fn client_writer(&self, tcp_writer: WriteHalf<'_>, mut receiver: Receiver<ControlMessage>)
+pub struct Writer<T> {
+    connection_id: Uuid,
+    server: Arc<T>,
+}
+
+impl<T: Server> Writer<T> {
+    pub fn new(server: &Arc<T>, connection_id: &Uuid) -> Writer<T> {
+        Writer {
+            connection_id: connection_id.clone(),
+            server: server.clone(),
+        }
+    }
+
+    pub async fn client_writer(&self, tcp_writer: WriteHalf<'_>,
+                               mut receiver: mpsc::Receiver<ControlMessage>,
+                               mut termination_receiver: broadcast::Receiver<()>)
                                -> Result<(), Error> {
         let mut writer = FramedWrite::new(tcp_writer, HanMessageCodec());
-        let mut term_receiver = self.term_sender.subscribe();
         loop {
             tokio::select!(
                 msg = receiver.recv() => self.process_ctrl_message(msg, &mut writer).await?,
-                _ = term_receiver.recv() => {
+                _ = termination_receiver.recv() => {
                     info!("Connection writer terminated");
                     break;
                 }
@@ -29,12 +44,12 @@ impl super::ClientConnection {
         match message {
             None => {
                 warn!("Internal receiver died.");
-                self.term_sender.send(()).unwrap_or(0);
+                self.server.terminate_connection(&self.connection_id);
                 Err(Error::InternalError("Internal Receiver terminated on Client Connection".to_string()))
             }
             Some(ControlMessage::DISCONNECT) => {
                 info!("Disconnect command received.");
-                self.term_sender.send(()).unwrap_or(0);
+                self.server.terminate_connection(&self.connection_id);
                 Ok(())
             }
             Some(ControlMessage::SENDCTRL(msg)) => {

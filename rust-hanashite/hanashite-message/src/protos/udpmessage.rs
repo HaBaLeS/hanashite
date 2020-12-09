@@ -1,6 +1,5 @@
 ///*
 /// Udp Message Envelope
-#[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HanUdpMessage {
     #[prost(bytes="vec", tag="111")]
@@ -10,7 +9,6 @@ pub struct HanUdpMessage {
 }
 /// Nested message and enum types in `HanUdpMessage`.
 pub mod han_udp_message {
-    #[derive(Eq,Hash)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Msg {
         #[prost(message, tag="100")]
@@ -21,11 +19,9 @@ pub mod han_udp_message {
 }
 ///*
 /// Keepalive package. Also registeres UDP address of the client to the server
-#[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PingPacket {
 }
-#[derive(Eq,Hash)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioPacket {
     #[prost(bytes="vec", tag="110")]
