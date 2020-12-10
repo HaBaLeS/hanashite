@@ -14,19 +14,21 @@ message StreamHeader {
 message HanMessage {
   bytes message_id = 1;
   oneof msg {
-    Auth auth = 2;
+    AuthCmd auth = 2;
     AuthResponse auth_response = 3;
-    Challenge challenge = 4;
+    ChallengeCmd challenge = 4;
     ChallengeResponse challenge_response = 5;
-    VoiceChannelJoin voice_channel_join = 6;
+    VoiceChannelJoinCmd voice_channel_join = 6;
     VoiceChannelJoinResponse voice_channel_join_response = 7;
+    VoiceChannelJoinEvent voice_channel_join_event = 8;
+    VoiceChannelLeaveEvent voice_channel_leave_event = 9;
   }
 }
 
 /*
 Login, nothing works before that.
  */
-message Auth {
+message AuthCmd {
   string username = 1;
   bytes public_key = 2;
 }
@@ -44,7 +46,7 @@ message AuthResponse {
   string message = 3;
 }
 
-message Challenge {
+message ChallengeCmd {
   bytes chellange = 1;
 }
 
@@ -52,7 +54,7 @@ message ChallengeResponse {
   bytes signature = 1;
 }
 
-message VoiceChannelJoin {
+message VoiceChannelJoinCmd {
   string name = 1;
 }
 
@@ -60,4 +62,16 @@ message VoiceChannelJoinResponse {
   bool success = 1;
   bytes channel_id = 2;
   string message = 3;
+}
+
+message VoiceChannelJoinEvent {
+  uint32 user_id = 1;
+  string user_name = 2;
+  string channel_name = 3;
+}
+
+message VoiceChannelLeaveEvent {
+  uint32 user_id = 1;
+  string user_name = 2;
+  string channel_name = 3;
 }

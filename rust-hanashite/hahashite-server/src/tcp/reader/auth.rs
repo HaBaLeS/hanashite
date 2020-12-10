@@ -1,20 +1,21 @@
 use crate::error::Error;
 use uuid::Uuid;
 use crate::server::{AuthStatus, Server, ControlMessage};
-use hanashite_message::protos::hanmessage::{Auth, AuthResponse, auth_response::ResultState, Challenge, ChallengeResponse};
+use hanashite_message::protos::hanmessage::*;
+use hanashite_message::protos::hanmessage::auth_response::ResultState;
 use sodiumoxide::crypto::sign::PublicKey;
 use hanashite_message::protos::build_message;
 use hanashite_message::protos::hanmessage::han_message::Msg;
 use crate::server::auth::AuthServer;
 
 impl<T: Server + AuthServer> super::Reader<T> {
-    pub async fn handle_auth(&self, message_id: &Option<Uuid>, msg: &Auth) -> Result<(), Error> {
+    pub async fn handle_auth(&self, message_id: &Option<Uuid>, msg: &AuthCmd) -> Result<(), Error> {
         let sender = self.server.connection_sender(&self.connection_id)?;
         if let Some(key) = PublicKey::from_slice(msg.public_key.as_slice()) {
             let result = self.server.auth_request(&self.connection_id, &msg.username, &key)?;
             sender.send(ControlMessage::SENDCTRL(match result {
                 AuthStatus::KeyChallenge(challenge) =>
-                    build_message(message_id, Msg::Challenge(Challenge {
+                    build_message(message_id, Msg::Challenge(ChallengeCmd {
                         chellange: challenge
                     })),
                 _ => return Err(Error::InternalError("Impossible Error".to_string()))
@@ -68,6 +69,7 @@ mod test {
         pub  trait Server {
             fn connection_sender(&self, connection_id: &Uuid) -> Result<mpsc::Sender<ControlMessage>, Error>;
             fn terminate_connection(&self, connection_id: &Uuid);
+            fn voice_channel_connections(&self, channel_name: &String) -> Result<Vec<Uuid>, Error>;
         }
 
         pub trait AuthServer {
@@ -86,7 +88,7 @@ mod test {
             server: Arc::new(server),
             connection_id: Uuid::new_v4(),
         };
-        reader.handle_auth(&None, &Auth {
+        reader.handle_auth(&None, &AuthCmd {
             username: "name".to_string(),
             public_key: vec![],
         }).await.unwrap();
@@ -111,7 +113,7 @@ mod test {
             server: Arc::new(server),
             connection_id: Uuid::new_v4(),
         };
-        reader.handle_auth(&None, &Auth {
+        reader.handle_auth(&None, &AuthCmd {
             username: "name".to_string(),
             public_key: Vec::from(&public.0[..]),
         }).await.unwrap();

@@ -61,7 +61,7 @@ mod test {
         let result = data.server.voice_channel_join_request(&data.connections[0],
                                               "testchannel1").unwrap();
         println!("{:?}", &result);
-        assert_matches!(result, JoinStatus::Joined(uuid, old_channels) => {
+        assert_matches!(result, JoinStatus::Joined(_uuid, _old_channels) => {
             let vocie_channels = data.server.voice_channels.lock().unwrap();
             let con = vocie_channels.get("testchannel1").unwrap();
             assert!(con.connections.contains(&data.connections[0]));

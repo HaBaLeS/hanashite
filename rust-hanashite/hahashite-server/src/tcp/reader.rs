@@ -15,6 +15,7 @@ use tracing::{trace, info, warn};
 use crate::server::Server;
 use uuid::Uuid;
 use crate::server::auth::AuthServer;
+use crate::server::channel::ChannelServer;
 
 pub struct Reader<T>
 {
@@ -22,7 +23,10 @@ pub struct Reader<T>
     server: Arc<T>,
 }
 
-impl<T: Server + AuthServer> Reader<T> {
+impl<T> Reader<T>
+    where T: Server,
+          T: AuthServer,
+          T: ChannelServer {
     pub fn new(server: &Arc<T>, connection_id: &Uuid) -> Reader<T> {
         Reader {
             server: server.clone(),
@@ -72,7 +76,8 @@ impl<T: Server + AuthServer> Reader<T> {
         let message_id = try_uuid(&msg.message_id);
         match &msg.msg {
             Some(Msg::Auth(msg)) => self.handle_auth(&message_id, &msg).await,
-            Some(Msg::ChallengeResponse(msg)) => self.handle_challenge_response(&message_id,&msg).await,
+            Some(Msg::ChallengeResponse(msg)) => self.handle_challenge_response(&message_id, &msg).await,
+            Some(Msg::VoiceChannelJoin(msg)) => self.handle_voice_channel_join(&message_id, &msg).await,
             Some(_) => self.handle_illegal_msg(&message_id, "Illegal Message Received").await,
             None => self.handle_illegal_msg(&message_id, "Empty message").await
         }

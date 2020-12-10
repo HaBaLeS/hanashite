@@ -90,11 +90,10 @@ pub struct ServerStruct {
     shutdown_sender: Sender<()>,
 }
 
-
 pub trait Server {
-    fn send_to_connection(&self, connection_id: &Uuid, msg: ControlMessage) -> Result<(), Error>;
     fn connection_sender(&self, connection_id: &Uuid) -> Result<mpsc::Sender<ControlMessage>, Error>;
     fn terminate_connection(&self, connection_id: &Uuid);
+    fn voice_channel_connections(&self, channel_name: &String) -> Result<Vec<Uuid>, Error>;
 }
 
 impl ServerStruct {
@@ -173,10 +172,10 @@ impl Server for ServerStruct {
         }
     }
 
-    async fn send_to_connection(&self, connection_id: &Uuid, msg: ControlMessage) -> Result<(), Error> {
-        let connections = self.connections.lock().unwrap();
-        if let Some(connection) = connections.get(connection_id) {
-            connection.sender.send(msg).await;
+    fn voice_channel_connections(&self, channel_name: &String) -> Result<Vec<Uuid>, Error> {
+        let channels = self.voice_channels.lock().unwrap();
+        if let Some(channel) = channels.get(channel_name) {
+            return Ok(channel.connections.iter().map(|x| x.clone()).collect());
         }
         Err(Error::InternalError("Illegal Connection Id".to_string()))
     }
