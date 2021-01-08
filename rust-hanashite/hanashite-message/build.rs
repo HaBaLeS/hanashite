@@ -1,6 +1,7 @@
 extern crate prost_build;
 
 use std::path::{Path, PathBuf};
+use protoc_rust::Customize;
 
 fn main() {
     let out_dir = PathBuf::from(::std::env::var("CARGO_MANIFEST_DIR").unwrap())
@@ -25,5 +26,18 @@ fn main() {
     let mut prost_build = prost_build::Config::new();
     prost_build.out_dir(out_dir);
     println!("{:?}", protos);
-    prost_build.compile_protos(&protos, &[in_dir]).unwrap();
+    prost_build.compile_protos(&protos, &[in_dir.clone()]).unwrap();
+
+    protoc_rust::Codegen::new()
+        .out_dir("src/proto")
+        .inputs(&protos)
+        .include(&in_dir)
+        .customize(Customize {
+            generate_accessors: Some(false),
+            gen_mod_rs: Some(true),
+            carllerche_bytes_for_bytes: Some(true),
+            ..Default::default()
+        })
+        .run()
+        .expect("protoc");
 }

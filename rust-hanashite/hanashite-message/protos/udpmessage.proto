@@ -14,6 +14,7 @@ message HanUdpMessage {
   }
 }
 
+
 /**
  * Keepalive package. Also registeres UDP address of the client to the server
  */

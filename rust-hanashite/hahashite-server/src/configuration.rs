@@ -127,9 +127,14 @@ impl Default for Server {
     }
 }
 
-#[cfg(test)]
+impl Default for Config {
+    fn default() -> Config {
+        toml::from_slice(&[]).unwrap()
+    }
+}
+
 pub fn default() -> Box<Config> {
-    Box::new(toml::from_slice(&[]).unwrap())
+    Box::new(Config::default())
 }
 
 pub fn init(path: &Path) -> Box<Config> {

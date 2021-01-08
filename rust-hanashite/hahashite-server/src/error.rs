@@ -1,5 +1,7 @@
 use crate::server::ControlMessage;
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::broadcast::error::RecvError;
+use crate::error::Error::InternalError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -8,7 +10,7 @@ pub enum Error {
     JoinError(tokio::task::JoinError),
     ProtobufError(prost::DecodeError),
     ProtocolError(String),
-//    PermissionDenied,
+    PermissionDenied,
 }
 
 impl std::fmt::Display for Error {
@@ -19,7 +21,7 @@ impl std::fmt::Display for Error {
             Error::JoinError(err) => err.fmt(f),
             Error::ProtobufError(err) => err.fmt(f),
             Error::ProtocolError(err) => err.fmt(f),
-//            Error::PermissionDenied => "PermissionDenied".fmt(f),
+            Error::PermissionDenied => "PermissionDenied".fmt(f),
         }
     }
 }
@@ -43,14 +45,20 @@ impl From<prost::DecodeError> for Error {
     }
 }
 
-impl From<tokio::sync::broadcast::error::SendError<()>> for Error {
-    fn from(err: tokio::sync::broadcast::error::SendError<()>) -> Self {
+impl From<tokio::sync::mpsc::error::SendError<ControlMessage>> for Error {
+    fn from(err: SendError<ControlMessage>) -> Self {
         Error::InternalError(err.to_string())
     }
 }
 
-impl From<tokio::sync::mpsc::error::SendError<ControlMessage>> for Error {
-    fn from(err: SendError<ControlMessage>) -> Self {
-        Error::InternalError(err.to_string())
+impl From<tokio::sync::broadcast::error::RecvError> for Error {
+    fn from(err: RecvError) -> Self {
+        InternalError(err.to_string())
+    }
+}
+
+impl<T> From<tokio::sync::broadcast::error::SendError<T>> for Error {
+    fn from(err: tokio::sync::broadcast::error::SendError<T>) -> Self {
+        InternalError(err.to_string())
     }
 }

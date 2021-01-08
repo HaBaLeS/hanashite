@@ -14,21 +14,21 @@ message StreamHeader {
 message HanMessage {
   bytes message_id = 1;
   oneof msg {
-    AuthCmd auth = 2;
+    PubKeyAuth pub_key_auth = 2;
     AuthResponse auth_response = 3;
-    ChallengeCmd challenge = 4;
+    Challenge challenge = 4;
     ChallengeResponse challenge_response = 5;
-    VoiceChannelJoinCmd voice_channel_join = 6;
-    VoiceChannelJoinResponse voice_channel_join_response = 7;
-    VoiceChannelJoinEvent voice_channel_join_event = 8;
-    VoiceChannelLeaveEvent voice_channel_leave_event = 9;
+    ChannelSubscription channel_subscription = 6;
+    ChannelSubscriptionError channel_subscription_error = 7;
+    ChannelSubscriptionEvent channel_subscription_event = 8;
+    ChannelSubscriptionEvent channel_unsubscription_event = 9;
   }
 }
 
 /*
 Login, nothing works before that.
  */
-message AuthCmd {
+message PubKeyAuth {
   string username = 1;
   bytes public_key = 2;
 }
@@ -46,7 +46,7 @@ message AuthResponse {
   string message = 3;
 }
 
-message ChallengeCmd {
+message Challenge {
   bytes chellange = 1;
 }
 
@@ -54,23 +54,33 @@ message ChallengeResponse {
   bytes signature = 1;
 }
 
-message VoiceChannelJoinCmd {
+message ChannelSubscription {
   string name = 1;
+  bool audio = 2;
 }
 
-message VoiceChannelJoinResponse {
-  bool success = 1;
-  bytes channel_id = 2;
-  string message = 3;
+message ChannelSubscriptionError {
+  enum Reason {
+    DOES_NOT_EXIST = 0;
+    PERMISSION_DENIED = 1;
+  }
+  Reason reason = 1;
 }
 
-message VoiceChannelJoinEvent {
+message ChannelSubscriptionEvent {
+  enum Flag {
+    AUDIO_RECEIVE = 0;
+    AUDIO_SEND = 1;
+    CHAT_SEND = 2;
+    MODERATOR = 3;
+  }
   uint32 user_id = 1;
   string user_name = 2;
   string channel_name = 3;
+  repeated Flag flags = 4;
 }
 
-message VoiceChannelLeaveEvent {
+message ChannelUnsubscriptionEvent {
   uint32 user_id = 1;
   string user_name = 2;
   string channel_name = 3;

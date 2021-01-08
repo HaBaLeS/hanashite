@@ -3,6 +3,7 @@ mod server;
 mod tcp;
 mod udp;
 mod error;
+mod bus;
 
 use std::path::Path;
 use tokio::runtime::Builder;

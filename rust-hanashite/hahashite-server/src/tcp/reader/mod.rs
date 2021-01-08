@@ -1,58 +1,70 @@
-mod auth;
-mod channel;
+#[cfg(test)]
+mod test;
 
 use hanashite_message::codec::HanMessageCodec;
 use crate::error::Error;
 use hanashite_message::protos::*;
 use hanashite_message::protos::hanmessage::*;
-use hanashite_message::protos::hanmessage::han_message::Msg;
 use std::sync::Arc;
 use tokio::net::tcp::ReadHalf;
-use tokio::stream::StreamExt;
-use tokio::sync::broadcast;
 use tokio_util::codec::FramedRead;
+use tokio_stream::StreamExt;
 use tracing::{trace, info, warn};
-use crate::server::Server;
+use crate::server::{Server, ServerBusEndpoint, ControlMessage, ConnectionContext};
 use uuid::Uuid;
-use crate::server::auth::AuthServer;
-use crate::server::channel::ChannelServer;
+use crate::bus::{MessagePredicate, BusMessage};
 
 pub struct Reader<T>
 {
     connection_id: Uuid,
     server: Arc<T>,
+    endpoint: ServerBusEndpoint,
+}
+
+struct ReaderMessagePredicate {
+    connection_id: Uuid,
+}
+
+impl MessagePredicate<ControlMessage, ConnectionContext> for ReaderMessagePredicate {
+    fn relevant(&self, message: &BusMessage<ControlMessage, ConnectionContext>,
+                context: &ConnectionContext) -> bool {
+        match message.msg {
+            ControlMessage::DISCONNECT(connection_id) => connection_id == self.connection_id,
+            _ => false
+        }
+    }
 }
 
 impl<T> Reader<T>
-    where T: Server,
-          T: AuthServer,
-          T: ChannelServer {
-    pub fn new(server: &Arc<T>, connection_id: &Uuid) -> Reader<T> {
+    where T: Server {
+    pub fn new(server: &Arc<T>, connection_id: &Uuid, endpoint: ServerBusEndpoint) -> Reader<T> {
         Reader {
             server: server.clone(),
             connection_id: connection_id.clone(),
+            endpoint,
         }
     }
 
 
-    pub async fn client_reader(&self,
-                               tcp_reader: ReadHalf<'_>,
-                               mut termination_receiver: broadcast::Receiver<()>)
+    pub async fn client_reader(&mut self,
+                               tcp_reader: ReadHalf<'_>)
                                -> Result<(), Error> {
+        let predicate = ReaderMessagePredicate { connection_id: self.connection_id };
         let mut reader = FramedRead::new(tcp_reader, HanMessageCodec());
         loop {
             tokio::select!(
-                msg = reader.next() => self.receive_message(msg).await?,
-                _ = termination_receiver.recv() => {
-                    info!("Connection reader terminated");
-                    break;
-                }
+                msg = reader.next() => self.network_message(msg).await?,
+                msg = self.endpoint.recv(&predicate) => self.bus_message(msg?).await?,
             )
         }
+    }
+
+    async fn bus_message(&self, msg: Arc<BusMessage<ControlMessage, ConnectionContext>>)
+                         -> Result<(), Error> {
         Ok(())
     }
 
-    async fn receive_message(&self, msg: Option<Result<Box<HanMessage>, std::io::Error>>) -> Result<(), Error> {
+    async fn network_message(&self, msg: Option<Result<Box<HanMessage>, std::io::Error>>) -> Result<(), Error> {
         match msg {
             Some(Ok(result)) => {
                 trace!("Message received");
@@ -61,12 +73,12 @@ impl<T> Reader<T>
             }
             Some(Err(e)) => {
                 trace!("Error {}", e.to_string());
-                self.server.terminate_connection(&self.connection_id);
+                self.server.terminate_connection(&self.connection_id)?;
                 Err(Error::from(e))
             }
             None => {
                 info!("Connection closed");
-                self.server.terminate_connection(&self.connection_id);
+                self.server.terminate_connection(&self.connection_id)?;
                 Ok(())
             }
         }
@@ -75,9 +87,6 @@ impl<T> Reader<T>
     async fn process_message(&self, msg: &Box<HanMessage>) -> Result<(), Error> {
         let message_id = try_uuid(&msg.message_id);
         match &msg.msg {
-            Some(Msg::Auth(msg)) => self.handle_auth(&message_id, &msg).await,
-            Some(Msg::ChallengeResponse(msg)) => self.handle_challenge_response(&message_id, &msg).await,
-            Some(Msg::VoiceChannelJoin(msg)) => self.handle_voice_channel_join(&message_id, &msg).await,
             Some(_) => self.handle_illegal_msg(&message_id, "Illegal Message Received").await,
             None => self.handle_illegal_msg(&message_id, "Empty message").await
         }

@@ -2,13 +2,11 @@ mod reader;
 mod writer;
 
 
-use crate::server::{ServerStruct, ControlMessage};
+use crate::server::{ServerStruct, ServerBusEndpoint};
 use crate::error::Error;
 use std::sync::Arc;
 use tracing::{error_span, info, Instrument};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
-use tokio::sync::broadcast;
 use uuid::Uuid;
 
 pub async fn run(server: Arc<ServerStruct>) -> Result<(), Error> {
@@ -17,44 +15,37 @@ pub async fn run(server: Arc<ServerStruct>) -> Result<(), Error> {
     let addr = format!("{}:{}", &config.tcp_bind_ip, &config.tcp_port);
     info!("Binding TCP port to {}", &addr);
     let listener = TcpListener::bind(&addr).await?;
-    let mut shutdown_receiver = server.shutdown_receiver();
     loop {
         let (stream, addr) = tokio::select!(
-            r = listener.accept() => r?,
-            _ = shutdown_receiver.recv() => {
-                info!("Stopping TCP Port !");
-                break;
-            });
+            r = listener.accept() => r?
+            );
         info!("Accepting Connection from {}", &addr);
         let server = server.clone();
         tokio::spawn(async move {
-            let (connection_id, receiver, termination_sender)
-                = server.new_connection(&addr);
+            let endpoint = server.create_endpoint();
+            let connection_id = server.new_connection(&addr);
             let span = error_span!("Connection", "{}", &connection_id);
             run_client(server,
                        connection_id,
                        stream,
-                       receiver,
-                       termination_sender,
+                       endpoint,
             ).instrument(span)
         });
     }
-    Ok(())
 }
 
 
 async fn run_client(server: Arc<ServerStruct>,
                     uuid: Uuid,
                     mut stream: TcpStream,
-                    receiver: mpsc::Receiver<ControlMessage>,
-                    termination_sender: broadcast::Sender<()>,
+                    endpoint: ServerBusEndpoint,
 ) {
     let (tcp_reader, tcp_writer) = stream.split();
-    let reader = reader::Reader::new(&server, &uuid);
-    let writer = writer::Writer::<ServerStruct>::new(&server, &uuid);
+    let mut reader = reader::Reader::new(&server, &uuid, endpoint.clone());
+    let mut writer = writer::Writer::<ServerStruct>::new(&server, &uuid, endpoint);
     match tokio::join!(
-        reader.client_reader(tcp_reader, termination_sender.subscribe()),
-        writer.client_writer(tcp_writer, receiver, termination_sender.subscribe())
+        reader.client_reader(tcp_reader),
+        writer.client_writer(tcp_writer)
     ) {
         (Err(er), Err(ew)) => info!("Client closed with errors {} - {}", &er, &ew),
         (Err(e), _) => info!("Client closed with read error {}", &e),
