@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use bytes::BytesMut;
 use prost::Message;
 use tokio::net::UdpSocket;
-use tokio::stream::StreamExt;
 use tokio::sync::mpsc::Receiver;
 use tokio_util::codec::{Decoder, Encoder};
 use tracing::{event, Instrument, Level, span};
@@ -25,7 +24,7 @@ pub struct UdpMessageParser {}
 
 pub async fn udp_client_write(_state: Arc<Mutex<ServerState>>, socket: Arc<UdpSocket>, mut receiver: Receiver<InternalUdpMsg>) {
     loop {
-        match receiver.next().await {
+        match receiver.recv().await {
             None => { return; }
             Some(InternalUdpMsg::SENDPACKAGE(msg, targets)) => {
                 let mut buf = BytesMut::new();

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
-use tokio::stream::StreamExt;
+use futures::StreamExt;
 use tokio::sync::mpsc::{Sender, channel, Receiver};
 use tokio_util::codec::{FramedWrite, FramedRead};
 use tokio_util::codec::{Encoder, Decoder};
@@ -75,13 +75,12 @@ pub async fn run_client(uuid: Uuid, mut stream: TcpStream, server: Arc<Mutex<Ser
     event!(Level::INFO, "Connection closed.");
 }
 
-async fn client_reader(read: ReadHalf<'_>, shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
+async fn client_reader(read: ReadHalf<'_>, mut shutdown_receiver: Receiver<()>, client: Arc<Mutex<ClientHandle>>) {
     let mut messages = FramedRead::new(read, MessageParser {}).fuse();
-    let mut fused_receiver = shutdown_receiver.fuse();
     loop {
         let select = tokio::select! {
             msg = messages.next() => msg,
-            _ = fused_receiver.next() => { event!(Level::TRACE, "Disconnect event !");  break; }
+            _ = shutdown_receiver.recv() => { event!(Level::TRACE, "Disconnect event !");  break; }
         };
         match select {
             Some(Ok(result)) => {
@@ -110,7 +109,7 @@ async fn client_writer(write: WriteHalf<'_>, mut receiver: Receiver<InternalMsg>
             _ => event!(Level::TRACE, "Internal Disconnect msg sent")
         };
     }
-    while let Some(result) = receiver.next().await {
+    while let Some(result) = receiver.recv().await {
         match result {
             InternalMsg::DISCONNECT => {
                 disconnect(&shutdown_sender).await;

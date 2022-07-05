@@ -2,10 +2,10 @@ extern crate rust_hanashite;
 
 use std::sync::Arc;
 
-use bytes::{Buf, BytesMut};
+use bytes::{BytesMut};
 use futures::SinkExt;
+use futures::StreamExt;
 use tokio::net::{TcpStream, UdpSocket};
-use tokio::stream::StreamExt;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio::time::sleep;
@@ -71,7 +71,7 @@ async fn listener() {
         msg: Some(han_udp_message::Msg::PingPacket(PingPacket {})),
     };
     codec.encode(udp_message, &mut buf).expect("Encoder broken");
-    udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+    udp_socket.send(&buf[..]).await.expect("Udp Failed");
     let mut buf = BytesMut::with_capacity(8152);
     loop {
         buf.resize(8152, 0);
@@ -136,7 +136,7 @@ async fn connection(port: u16) {
         msg: Some(han_udp_message::Msg::PingPacket(PingPacket {})),
     };
     codec.encode(udp_message, &mut buf).expect("Encoder broken");
-    udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+    udp_socket.send(&buf[..]).await.expect("Udp Failed");
     println!("Send UDP");
     for i in 1..20 {
         let mut buf = BytesMut::new();
@@ -148,7 +148,7 @@ async fn connection(port: u16) {
                 sequence_id: i,
             })),
         }, &mut buf).expect("Encoder broken");
-        udp_socket.send(buf.bytes()).await.expect("Udp Failed");
+        udp_socket.send(&buf[..]).await.expect("Udp Failed");
         println!("Send UDP");
     }
     sleep(Duration::from_secs(10)).await;
